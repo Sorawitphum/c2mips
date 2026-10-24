@@ -1,0 +1,3 @@
+exit: 70
+before
+runtime error: division by zero

@@ -34,13 +34,21 @@ def run_spim(asm: Path, timeout: float = 10) -> tuple[str, int]:
     env = {**os.environ, "C2MIPS_SPIM_TIMEOUT": str(timeout + 2)}
     p = subprocess.run([SPIM, "-stext", "4194304", "-file", str(asm)],
                        capture_output=True, text=True, timeout=timeout, env=env,
-                       stdin=subprocess.DEVNULL)  # bad file -> spim's REPL must not wait
+                       stdin=subprocess.DEVNULL,  # bad file -> spim's REPL must not wait
+                       encoding="utf-8", errors="replace")  # .byte strings print UTF-8
     lines = p.stdout.split("\n")
     try:
         start = next(i for i, ln in enumerate(lines) if ln.startswith("Loaded:")) + 1
     except StopIteration:
         raise RuntimeError(f"no SPIM banner\nstdout:\n{p.stdout}\nstderr:\n{p.stderr}") from None
     return "\n".join(lines[start:]), p.returncode
+
+
+def read_expected(path: Path) -> tuple[str, int]:
+    """programs/*.expected: first line `exit: <code>`, the rest is the exact stdout."""
+    head, _, out = path.read_text(encoding="utf-8").partition("\n")
+    assert head.startswith("exit: "), path
+    return out, int(head.removeprefix("exit: "))
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

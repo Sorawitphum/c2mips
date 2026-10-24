@@ -1,0 +1,3 @@
+e029_main_signature.c:1:5: error[E029]: 'main' must be declared as 'int main(void)' or 'int main()'
+int main(int argc) {
+    ^

@@ -1,0 +1,31 @@
+"""Compile-error golden: errors/*.c -> stderr == *.err, exit 1 (README 10, 9.2)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from c2mips.__main__ import main
+
+ERR_DIR = Path(__file__).parent / "errors"
+ERRORS = sorted(ERR_DIR.glob("*.c"))
+
+
+@pytest.mark.parametrize("src", ERRORS, ids=lambda p: p.stem)
+def test_error(src: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+               capsys: pytest.CaptureFixture[str]) -> None:
+    monkeypatch.chdir(ERR_DIR)  # diagnostics print the path as given on the command line
+    out = tmp_path / "out.s"
+    assert main([src.name, "-o", str(out)]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == src.with_suffix(".err").read_text(encoding="utf-8")
+    assert not out.exists()
+
+
+def test_every_lexer_parser_code_has_an_error_test() -> None:
+    # M1 exit criterion: error tests for the lexer and the parser are complete.
+    codes = {p.stem.split("_")[0].upper() for p in ERRORS}
+    assert {"E001", "E002", "E003", "E010", "E011", "E025", "E026", "E027", "E030",
+            "E031"} <= codes

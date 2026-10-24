@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []  # NFR-7: runtime uses the Python stdlib only
 
+[project.scripts]
+c2mips = "c2mips.__main__:cli"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8",

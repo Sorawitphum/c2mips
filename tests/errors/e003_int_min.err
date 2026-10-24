@@ -1,0 +1,3 @@
+e003_int_min.c:2:13: error[E003]: integer literal 2147483648 out of range; write -2147483647 - 1
+    return -2147483648;
+            ^

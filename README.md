@@ -429,7 +429,7 @@ L<n>_end:
 ### 6.6 String และกฎ ASCII
 
 - ✅ **อักขระ non-ASCII (เช่นภาษาไทย) แม้อยู่ใน comment ทำให้ SPIM 8.0 ค้าง** → Emitter รับประกันว่า output เป็น ASCII ล้วน; comment ที่สะท้อนบรรทัด C จะ escape non-ASCII เป็น `ส`
-- ✅ `.asciiz` ของ SPIM รองรับ `\n \t \"` แต่ **พิมพ์ `\\` ออกมาเป็นสองตัว** → กฎ: ใช้ `.asciiz` เมื่อ string มีแต่ ASCII พิมพ์ได้ (0x20–0x7E) ยกเว้น `\` บวก `\n`/`\t`; นอกนั้นใช้ `.byte` + `0`
+- ✅ `.asciiz` ของ SPIM รองรับ `\n \t \"` แต่ **พิมพ์ `\\` ออกมาเป็นสองตัว** → กฎ: ใช้ `.asciiz` เมื่อ string มีแต่ ASCII พิมพ์ได้ (0x20–0x7E) ยกเว้น `\` บวก `\n`/`\t`; นอกนั้นใช้ `.byte` + `0` (ไบต์ ≥ 0x80 เขียนเป็นค่าลบ เช่น 0xE0 → `-32` — [ADR-007](#adr-007-ไบต์--0x80-ใน-byte-เขียนเป็นค่าลบ))
 - ✅ ข้อความไทยผ่าน `.byte` (UTF-8 bytes) พิมพ์ออกมาถูกต้อง
 
 ### 6.7 Entry stub
@@ -557,6 +557,21 @@ main:   jal   f_main
 | C: คืนค่า sentinel (−1) | ไม่หยุดโปรแกรม | −1 เป็นผลลัพธ์ปกติของ arithmetic ได้ → แยกไม่ออก |
 
 **Decision:** B สำหรับ `/0` และ nCk overflow; `x / -1` นิยามเป็น `-x` · exit code 70 = `EX_SOFTWARE` ของ `sysexits.h` · ข้อความออก stdout เพราะ syscall ของ SPIM มีแค่ stdout
+
+### ADR-007: ไบต์ ≥ 0x80 ใน `.byte` เขียนเป็นค่าลบ
+
+**Status:** Accepted · **Date:** 2026-10-24 (M1)
+
+**Context:** string ที่มี non-ASCII (เช่นไทย) ต้องออกเป็น `.byte` ของ UTF-8 (§6.6) ✅ MARS 4.5 รับค่า 128–255 ได้ถูก แต่พิมพ์ warning `out-of-range for a signed value` ลง **stdout** ทุกไบต์ ซึ่งปน output ของโปรแกรม (S17)
+
+| Option | ข้อดี | ข้อเสีย |
+|---|---|---|
+| A: ค่าบวก 0–255 | อ่านง่าย ตรงกับ hex dump | MARS ปน warning ลง stdout |
+| **B: ค่า signed −128…127** | ไบต์เดียวกันทุกตัว; ✅ ไม่มี warning บน MARS และ ✅ SPIM พิมพ์ถูก | อ่านยากกว่าเล็กน้อย |
+| C: `.word` / แยก string ไทยเป็นตารางเอง | — | ซับซ้อนเกินจำเป็น |
+
+**Decision:** B · ไม่กระทบ semantics (§4) หรือ calling convention (§6.2) เพราะไบต์ในหน่วยความจำเหมือนเดิมทุกตัว
+**Consequences:** `tests/unit/test_emitter.py` ล็อกรูปแบบนี้; ✅ `printf_utf8` ให้ผลเหมือนกันบน SPIM, MARS และ gcc
 
 ---
 
@@ -900,11 +915,11 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 - [ ] CI บน GitHub Actions
 
 **M1**
-- [ ] `tokens.py`, `lexer.py` + test ตำแหน่ง line:col
-- [ ] `parser.py` (additive/term/unary/primary) + AST snapshot test
-- [ ] `codegen.py`: IntLit, Unary, Binary, Return, Printf
-- [ ] `emitter.py`: entry stub, intern string, กฎ ASCII, ต่อ runtime
-- [ ] `diagnostics.py` + `errors/*.c`
+- [x] `tokens.py`, `lexer.py` + test ตำแหน่ง line:col
+- [x] `parser.py` (additive/term/unary/primary) + AST snapshot test — parse grammar §4.2 ทุกกฎที่ไม่ได้ติด M4; ส่วน M4 → `E030`
+- [x] `codegen.py`: IntLit, Unary, Binary, Return, Printf
+- [x] `emitter.py`: entry stub, intern string, กฎ ASCII, ต่อ runtime
+- [x] `diagnostics.py` + `errors/*.c` — ระหว่าง M1 sema รายงานตัวแปร (M2) / call (M3) / ฟังก์ชันของผู้ใช้ (M4) เป็น `E030` "not supported yet"
 
 **M2**
 - [ ] `sema.py`: scope stack, Symbol, slot allocation, FuncInfo
@@ -960,7 +975,7 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 | S14 | (1) MARS เริ่มรันที่ **คำสั่งแรกของ `.text`** ไม่ใช่ที่ `main` (ยกเว้นใส่ option `sm`); SPIM เข้าที่ `main` ผ่าน `__start` | ✅ stub §6.7 ต้องอยู่บนสุดของ `.text` |
 | S15 | (2) syscall 17 → exit status ของ process `java` จริง (ทดสอบ 42 และ 70); ถ้าตกท้าย `.text` โดยไม่ exit: MARS exit 0 เงียบ ๆ, SPIM เตือนทาง stderr แล้ว exit 0 | ✅ exit code ทดสอบได้บน MARS; stub จบด้วย syscall 17 เสมอ |
 | S16 | (3) `.asciiz` บน MARS: `\n \t \"` ถูก แต่ `\\` ได้ `\` **ตัวเดียว** (ต่างจาก SPIM ที่ได้สองตัว — S9; และ `"[\\]"` ทำ SPIM parse error) · `.byte 92` ได้ `\` ตัวเดียวทั้งคู่ | ✅ กฎ §6.6 (มี `\` → `.byte`) จำเป็นและใช้ได้ทั้งคู่ |
-| S17 | (4) non-ASCII บน MARS: ไทยใน comment **ไม่ค้าง** (ต่างจาก S8); ไทยใน `.asciiz` **เพี้ยน** (MARS เก็บแค่ไบต์ล่างของแต่ละอักขระ); `.byte` ค่า 128–255 เก็บถูกแต่ MARS พิมพ์ warning `out-of-range for a signed value and possibly truncated` **ลง stdout** ทุกไบต์; `.byte` ค่าลบ (เช่น 0xE0 → `-32`) ได้ไบต์เดียวกัน ไม่มี warning และ SPIM พิมพ์ไทยถูก · stdout ของ Java บน Windows แปลงไบต์ ≥ 0x80 เป็น `?` ต้องรันด้วย `-Dstdout.encoding=ISO-8859-1` จึงได้ไบต์ตรง | ASCII ล้วน (NFR-6) ยังจำเป็นเพราะ SPIM · **ข้อเสนอ M1:** Emitter เขียนไบต์ ≥ 0x80 ใน `.byte` เป็นค่าลบ (§6.6 ยังไม่แก้ — รอตัดสินใจ) |
+| S17 | (4) non-ASCII บน MARS: ไทยใน comment **ไม่ค้าง** (ต่างจาก S8); ไทยใน `.asciiz` **เพี้ยน** (MARS เก็บแค่ไบต์ล่างของแต่ละอักขระ); `.byte` ค่า 128–255 เก็บถูกแต่ MARS พิมพ์ warning `out-of-range for a signed value and possibly truncated` **ลง stdout** ทุกไบต์; `.byte` ค่าลบ (เช่น 0xE0 → `-32`) ได้ไบต์เดียวกัน ไม่มี warning และ SPIM พิมพ์ไทยถูก · stdout ของ Java บน Windows แปลงไบต์ ≥ 0x80 เป็น `?` ต้องรันด้วย `-Dstdout.encoding=ISO-8859-1` จึงได้ไบต์ตรง | ASCII ล้วน (NFR-6) ยังจำเป็นเพราะ SPIM · Emitter เขียนไบต์ ≥ 0x80 ใน `.byte` เป็นค่าลบ (ADR-007) |
 | S18 | (5) `div $t1, $t0` บน MARS เป็นคำสั่งจริง 1 คำสั่ง (4 ไบต์ เท่ากับ SPIM) ไม่แทรก check: `5/0` ไม่ trap, LO ค้างค่าเก่า (เหมือน SPIM); `INT_MIN/-1` MARS ได้ `-2147483648` แต่ SPIM LO ค้างค่าเก่า; `-7/2 = -3` ทั้งคู่ | ✅ ผลดิบต่างกัน แต่ guard §6.4 ให้ผลเดียวกันทั้งคู่ |
 | S19 | `runtime.s` บน MARS: exhaustive 1,819 กรณีตรง `math.comb` (0.6 วินาที); overflow (34,16 · 65537,2 · 100000,2 · 2147483647,1073741823) → ข้อความถูก + exit 70; `__rt_div0` → exit 70; `example.s` (ภาคผนวก B) → `a = 23` / `C(10,3) = 120` exit 0 | ✅ S3/S4/S11 เป็นจริงบน MARS ด้วย — ยังไม่ต้องมี `--target mars` (Q30) |
 | S20 | harness ของ MARS: หลังโปรแกรมจบ MARS พิมพ์บรรทัดว่างเพิ่ม 1 บรรทัด (`\r\n` บน Windows); error ตอน assemble ออก stdout แต่ **exit 0** ถ้าไม่ใส่ `ae<n>` | MARS harness (M6) ต้องตัดบรรทัดท้าย และใช้ `nc ae<n>` |

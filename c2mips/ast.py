@@ -1,0 +1,164 @@
+"""AST (README 5.3). Every node has .pos; statements also have .end (just past their last token)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from c2mips.tokens import Pos
+
+
+@dataclass
+class IntLit:
+    value: int
+    pos: Pos
+
+
+@dataclass
+class Var:
+    name: str
+    pos: Pos
+    resolved: object | None = None  # sema.Symbol (M2)
+
+
+@dataclass
+class Assign:
+    name: str
+    value: Expr
+    pos: Pos
+    resolved: object | None = None
+
+
+@dataclass
+class Unary:
+    op: str  # "-" | "+"
+    operand: Expr
+    pos: Pos
+
+
+@dataclass
+class Binary:
+    op: str  # "+" | "-" | "*" | "/"
+    left: Expr
+    right: Expr
+    pos: Pos
+
+
+@dataclass
+class Call:
+    name: str
+    args: list[Expr]
+    pos: Pos
+    resolved: object | None = None
+
+
+Expr = IntLit | Var | Assign | Unary | Binary | Call
+
+
+@dataclass(frozen=True)
+class FmtD:
+    """A `%d` in a printf format."""
+
+
+@dataclass
+class Block:
+    stmts: list[Stmt]
+    pos: Pos
+    end: Pos
+
+
+@dataclass
+class Decl:
+    items: list[tuple[str, Expr | None]]
+    pos: Pos
+    end: Pos
+    item_pos: list[Pos] = field(default_factory=list)
+
+
+@dataclass
+class Return:
+    expr: Expr
+    pos: Pos
+    end: Pos
+
+
+@dataclass
+class ExprStmt:
+    expr: Expr
+    pos: Pos
+    end: Pos
+
+
+@dataclass
+class Empty:
+    pos: Pos
+    end: Pos
+
+
+@dataclass
+class Printf:
+    segments: list[str | FmtD]
+    args: list[Expr]
+    pos: Pos
+    end: Pos
+
+
+Stmt = Block | Decl | Return | ExprStmt | Empty | Printf
+
+
+@dataclass
+class Function:
+    name: str
+    params: list[str]
+    body: Block | None  # None = prototype
+    pos: Pos  # position of the name
+    param_pos: list[Pos] = field(default_factory=list)
+
+
+@dataclass
+class Program:
+    functions: list[Function]
+    pos: Pos
+
+
+def quote(s: str) -> str:
+    """C-style string literal for s (used by --emit=ast and asm comments)."""
+    out = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
+    return f'"{out}"'
+
+
+def sexpr(node: Program | Function | Stmt | Expr) -> str:
+    """S-expression used by --emit=ast and parser snapshot tests."""
+    match node:
+        case Program(functions=fns):
+            return "(" + " ".join(["program", *map(sexpr, fns)]) + ")"
+        case Function(name=name, params=params, body=None):
+            return f"(prototype {name} ({' '.join(params)}))"
+        case Function(name=name, params=params, body=Block() as body):
+            return f"(function {name} ({' '.join(params)}) {sexpr(body)})"
+        case Block(stmts=stmts):
+            return "(" + " ".join(["block", *map(sexpr, stmts)]) + ")"
+        case Decl(items=items):
+            parts = [f"({n})" if e is None else f"({n} {sexpr(e)})" for n, e in items]
+            return "(" + " ".join(["decl", *parts]) + ")"
+        case Return(expr=e):
+            return f"(return {sexpr(e)})"
+        case ExprStmt(expr=e):
+            return f"(expr {sexpr(e)})"
+        case Empty():
+            return "(empty)"
+        case Printf(segments=segs, args=args):
+            fmt = " ".join("%d" if isinstance(s, FmtD) else quote(s) for s in segs)
+            return "(" + " ".join(["printf", f"({fmt})", *map(sexpr, args)]) + ")"
+        case IntLit(value=v):
+            return str(v)
+        case Var(name=name):
+            return name
+        case Assign(name=name, value=v):
+            return f"(= {name} {sexpr(v)})"
+        case Unary(op=op, operand=e):
+            return f"({'neg' if op == '-' else 'pos'} {sexpr(e)})"
+        case Binary(op=op, left=a, right=b):
+            return f"({op} {sexpr(a)} {sexpr(b)})"
+        case Call(name=name, args=args):
+            return "(" + " ".join(["call", name, *map(sexpr, args)]) + ")"
+    raise TypeError(node)

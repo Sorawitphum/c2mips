@@ -1,0 +1,6 @@
+e030_variables.c:2:5: error[E030]: variable declarations are not supported yet
+    int x = 1;
+    ^
+e030_variables.c:3:12: error[E030]: variables are not supported yet
+    return x;
+           ^

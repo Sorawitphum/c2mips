@@ -1,0 +1,3 @@
+e001_unknown_escape.c:2:14: error[E001]: unknown escape sequence '\q' (supported: \n \t \\ \")
+    printf("a\qb");
+             ^
