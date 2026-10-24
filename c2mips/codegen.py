@@ -61,6 +61,16 @@ _COMPARE: dict[str, list[tuple[str, ...]]] = {
     "!=": [("subu", "$t0", "$t1", "$t0"), ("sltu", "$t0", "$zero", "$t0")],
 }
 
+# -O1 conditions: jump to the target when `$t1 <op> $t0` is false.
+_BRANCH_IF_FALSE: dict[str, list[tuple[str, ...]]] = {
+    "==": [("bne", "$t1", "$t0")],
+    "!=": [("beq", "$t1", "$t0")],
+    "<": [("slt", "$t0", "$t1", "$t0"), ("beq", "$t0", "$zero")],
+    ">": [("slt", "$t0", "$t0", "$t1"), ("beq", "$t0", "$zero")],
+    "<=": [("slt", "$t0", "$t0", "$t1"), ("bne", "$t0", "$zero")],  # false when b < a
+    ">=": [("slt", "$t0", "$t1", "$t0"), ("bne", "$t0", "$zero")],  # false when a < b
+}
+
 
 def _prec(e: ast.Expr) -> int:
     match e:
@@ -71,8 +81,10 @@ def _prec(e: ast.Expr) -> int:
     return 99
 
 
-def codegen(prog: ast.Program, source: str) -> list[AsmLine]:
-    return _Codegen(source).program(prog)
+def codegen(prog: ast.Program, source: str, opt: int = 0) -> list[AsmLine]:
+    """opt=1 adds the README 6.9 templates (leaf operand, constant divisor); folding is
+    fold.py's job and happens before this."""
+    return _Codegen(source, opt).program(prog)
 
 
 def _depth(e: ast.Expr) -> int:
@@ -110,6 +122,35 @@ def _render(e: ast.Expr) -> str:
     raise TypeError(e)
 
 
+def _is_leaf(e: ast.Expr) -> bool:
+    return isinstance(e, ast.IntLit | ast.Var)
+
+
+def _has_assign(e: ast.Expr) -> bool:
+    match e:
+        case ast.Assign():
+            return True
+        case ast.Unary():
+            return _has_assign(e.operand)
+        case ast.Binary():
+            return _has_assign(e.left) or _has_assign(e.right)
+        case ast.Call():
+            return any(map(_has_assign, e.args))
+    return False
+
+
+def _drop_branches_to_next_line(lines: list[AsmLine]) -> list[AsmLine]:
+    """Peephole (-O1): `b L` directly followed by `L:` does nothing."""
+    out: list[AsmLine] = []
+    for i, ln in enumerate(lines):
+        nxt = lines[i + 1] if i + 1 < len(lines) else None
+        if (isinstance(ln, Insn) and ln.op == "b" and isinstance(nxt, Label)
+                and ln.args == (nxt.name,)):
+            continue
+        out.append(ln)
+    return out
+
+
 def _describe(e: ast.Expr) -> str:
     """Short comment for the instruction that produces e (README appendix B style)."""
     if _depth(e) <= 2:
@@ -120,7 +161,8 @@ def _describe(e: ast.Expr) -> str:
 
 
 class _Codegen:
-    def __init__(self, source: str) -> None:
+    def __init__(self, source: str, opt: int) -> None:
+        self.opt = opt
         self.lines: list[AsmLine] = []
         self.src_lines = source.replace("\r\n", "\n").split("\n")
         self.n_labels = 0
@@ -135,6 +177,14 @@ class _Codegen:
     def new_label(self) -> int:
         self.n_labels += 1
         return self.n_labels
+
+    def load_leaf(self, e: ast.Expr, reg: str, comment: str = "") -> None:
+        """A constant or a variable straight into reg (-O1)."""
+        if isinstance(e, ast.IntLit):
+            self.emit("li", reg, str(e.value), comment=comment)
+        else:
+            assert isinstance(e, ast.Var) and e.resolved is not None
+            self.emit("lw", reg, f"{e.resolved.offset}($fp)", comment=comment)
 
     def push(self, comment: str = "") -> None:
         self.emit("addiu", "$sp", "$sp", "-4")
@@ -167,7 +217,7 @@ class _Codegen:
             if f.body is not None:
                 self.lines.append(Blank())
                 self.function(f, f.body)
-        return self.lines
+        return _drop_branches_to_next_line(self.lines) if self.opt else self.lines
 
     def function(self, f: ast.Function, body: ast.Block) -> None:
         self.fn = f.name
@@ -219,8 +269,11 @@ class _Codegen:
         self.lines.append(Comment(self.source_text(s.pos, s.end)))
         match s:
             case ast.Return():
-                self.expr(s.expr)
-                self.emit("move", "$v0", "$t0")
+                if self.opt and _is_leaf(s.expr):
+                    self.load_leaf(s.expr, "$v0")
+                else:
+                    self.expr(s.expr)
+                    self.emit("move", "$v0", "$t0")
                 self.emit("b", f"L_epi_{self.fn}")
             case ast.ExprStmt():
                 self.expr(s.expr)
@@ -236,6 +289,14 @@ class _Codegen:
                 self.emit("sw", "$t0", f"{sym.offset}($fp)")
 
     def branch_if_false(self, cond: ast.Expr, target: str) -> None:
+        if self.opt and isinstance(cond, ast.Binary) and cond.op in _BRANCH_IF_FALSE:
+            # -O1: branch on the comparison itself instead of materialising 0/1 first
+            self.operands(cond)
+            *setup, (branch, *regs) = _BRANCH_IF_FALSE[cond.op]
+            for op, *args in setup:
+                self.emit(op, *args)
+            self.emit(branch, *regs, target, comment=f"if !({_describe(cond)})")
+            return
         self.expr(cond)
         self.emit("beq", "$t0", "$zero", target)
 
@@ -277,15 +338,23 @@ class _Codegen:
         self.label(f"L{n}_fend")
 
     def printf(self, s: ast.Printf) -> None:
-        # README 4.5: evaluate every argument (pushed) before printing anything.
-        for i, arg in enumerate(s.args):
+        # README 4.5: evaluate every argument (pushed) before printing anything. At -O1 a
+        # leaf argument is read when it is printed instead: reading has no effect, and
+        # nothing else can change a local in between unless an argument assigns one.
+        defer = self.opt and not any(map(_has_assign, s.args))
+        pushed = [i for i, a in enumerate(s.args) if not (defer and _is_leaf(a))]
+        for i in pushed:
+            arg = s.args[i]
             self.expr(arg)
             self.push(f"arg{i} = {_render(arg)}" if _depth(arg) <= 2 else f"arg{i}")
-        n = len(s.args)
+        n = len(pushed)
         k = 0
         for seg in s.segments:
             if isinstance(seg, ast.FmtD):
-                self.emit("lw", "$a0", f"{4 * (n - 1 - k)}($sp)")
+                if k in pushed:
+                    self.emit("lw", "$a0", f"{4 * (n - 1 - pushed.index(k))}($sp)")
+                else:
+                    self.load_leaf(s.args[k], "$a0", f"arg{k} = {_render(s.args[k])}")
                 self.emit("li", "$v0", "1")
                 k += 1
             else:
@@ -317,21 +386,36 @@ class _Codegen:
             case ast.Binary() if e.op in ("&&", "||"):
                 self.logical(e)
             case ast.Binary():
-                self.expr(e.left)
-                self.push()
-                self.expr(e.right)
-                self.pop_t1()
+                self.operands(e)
                 self.binary(e)
             case ast.Call():
                 self.call(e)
+
+    def operands(self, e: ast.Binary) -> None:
+        """Left operand into $t1, right into $t0."""
+        self.expr(e.left)
+        if self.opt and _is_leaf(e.right):
+            # README 6.9.3: loading a leaf cannot clobber $t1, so skip push/pop
+            self.emit("move", "$t1", "$t0")
+            self.expr(e.right)
+        else:
+            self.push()
+            self.expr(e.right)
+            self.pop_t1()
 
     def call(self, e: ast.Call) -> None:
         """README 6.3: push every argument, load $a0..$a(n-1) from the stack, pop, jal.
 
         Nothing stays in a register across the jal, so the callee may clobber $t*/$a*.
         """
-        assert e.resolved is not None, "sema resolves every call (user functions: M4)"
+        assert e.resolved is not None, "sema resolves every call"
         n = len(e.args)
+        if self.opt and n and all(map(_is_leaf, e.args)):  # -O1: nothing to protect
+            for i, arg in enumerate(e.args):
+                self.load_leaf(arg, f"$a{i}", f"{e.name} arg {_render(arg)}")
+            self.emit("jal", e.resolved.label)
+            self.emit("move", "$t0", "$v0")
+            return
         for i, arg in enumerate(e.args):
             self.expr(arg)
             self.push(f"{e.name} arg {_render(arg)}" if _depth(arg) <= 2 else f"{e.name} arg{i}")
@@ -376,6 +460,14 @@ class _Codegen:
         elif e.op == "*":
             self.emit("mult", "$t1", "$t0")
             self.emit("mflo", "$t0", comment=note)
+        elif (c := self.constant_divisor(e)) is not None:  # README 6.9.4: no guard needed
+            if c == 0:
+                self.emit("b", "__rt_div0", comment="x / 0 -> panic (not folded)")
+            elif c == -1:
+                self.emit("subu", "$t0", "$zero", "$t1", comment="x / -1 == -x (wraps for INT_MIN)")
+            else:
+                self.emit("div", "$t1", "$t0")
+                self.emit("mflo", "$t0", comment=note)
         else:  # "/" -- README 6.4 guard
             n = self.new_label()
             self.emit("beq", "$t0", "$zero", "__rt_div0", comment="divisor == 0 -> panic")
@@ -388,8 +480,21 @@ class _Codegen:
             self.emit("mflo", "$t0", comment=note)
             self.label(f"L{n}_end")
 
+    def constant_divisor(self, e: ast.Binary) -> int | None:
+        return e.right.value if self.opt and isinstance(e.right, ast.IntLit) else None
+
     def remainder(self, e: ast.Binary, note: str) -> None:
         """Same guard as `/` (README 6.4, ADR-008): x % 0 panics, x % -1 == 0."""
+        c = self.constant_divisor(e)
+        if c is not None:  # README 6.9.4
+            if c == 0:
+                self.emit("b", "__rt_div0", comment="x % 0 -> panic (not folded)")
+            elif c == -1:
+                self.emit("li", "$t0", "0", comment="x % -1 == 0 (no INT_MIN trap)")
+            else:
+                self.emit("div", "$t1", "$t0")
+                self.emit("mfhi", "$t0", comment=note)
+            return
         n = self.new_label()
         self.emit("beq", "$t0", "$zero", "__rt_div0", comment="divisor == 0 -> panic")
         self.emit("li", "$t2", "-1")

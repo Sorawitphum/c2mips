@@ -470,9 +470,18 @@ main:   jal   f_main
 1. Constant folding ด้วย `cvalue.py` (wrap32, ปัดเข้าหาศูนย์) — **ห้ามพับ** `x/0` และ nCk ที่ล้น เพื่อให้พฤติกรรม runtime เหมือน `-O0`
 2. พับ `nCk(const, const)` เมื่อผลพอดี int32
 3. Leaf operand: ถ้า operand ขวาเป็น `IntLit`/`Var` → gen(a); `move $t1, $t0`; โหลด b เข้า `$t0` ตรง ๆ (ประหยัด push/pop = 4 คำสั่ง)
-4. ตัด guard ของการหารเมื่อตัวหารเป็นค่าคงที่
+4. ตัด guard ของการหารเมื่อตัวหารเป็นค่าคงที่ (รวม `%` ตาม ADR-008: c = −1 → `li $t0, 0`; c = 0 → `b __rt_div0`)
 
-**สัญญา:** `-O0` และ `-O1` ต้องให้ stdout + exit code เหมือนกันทุกโปรแกรม (property test)
+เพิ่มใน M5 — ✅ ข้อ 1–4 อย่างเดียวลดได้แค่ 13.3% บน `examples/` (ไม่ถึงเกณฑ์ 30%) เพราะคำสั่งส่วนใหญ่อยู่ที่การ push argument ของ call/printf จึงขยายหลักการ leaf operand ข้อ 3 ไปที่จุดอื่น — calling convention (§6.2) ไม่เปลี่ยน:
+
+5. Call ที่ argument **ทุกตัว** เป็น leaf → โหลดเข้า `$a0..$a3` ตรง ๆ (ไม่มีอะไรต้องกันจาก callee)
+6. argument ของ `printf` ที่เป็น leaf → อ่านตอนพิมพ์แทนการ push — ทำเฉพาะเมื่อไม่มี argument ใดมี assignment จึงสังเกตไม่ได้ว่าอ่านช้ากว่า (§4.5; ตัวแปร local แก้จาก callee ไม่ได้เพราะไม่มี pointer/global)
+7. `return <leaf>` → โหลดเข้า `$v0` ตรง ๆ; peephole ตัด `b L` ที่ตามด้วย `L:` ทันที
+8. เงื่อนไขของ `if/while/for` ที่เป็น comparison → branch ตรง (`==` → `bne`, `!=` → `beq`, `<=`/`>=` ไม่ต้อง `xori`)
+
+✅ ผล: 1,119 → 758 คำสั่ง (−32.3%) บน `examples/` (`tests/test_optimize.py` วัดทุกครั้ง)
+
+**สัญญา:** `-O0` และ `-O1` ต้องให้ stdout + exit code เหมือนกันทุกโปรแกรม (property test) — ✅ ทุก golden, ทุก example, และ expression สุ่มเทียบ `cvalue.py` ทั้งสองระดับ
 
 ---
 
@@ -959,6 +968,13 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 - [x] `W001` เมื่อท้ายฟังก์ชัน (ที่ไม่ใช่ `main`) ไปถึงได้ — ตรวจตาม flow (if/else ทั้งสองทาง, loop ที่เงื่อนไขเป็นค่าคงที่ไม่ใช่ 0 ไม่มีวันจบเพราะไม่มี `break`); คอมไพล์ผ่าน exit 0 และฟังก์ชันคืน 0
 - [x] `examples/fact.c`, `fib.c`, `gcd.c` และ `nck_user.c` (n!/(k!(n−k)!) ที่ผู้ใช้เขียน = builtin ทุก n ≤ 12) ผลตรงกับ Python และ gcc
 - [x] ไม่มี placeholder `E030 … not supported yet` เหลือ — `E030` ใช้เฉพาะสิ่งที่อยู่นอก MiniC (type อื่น, pointer, array, `++`, `+=`, `break`, …)
+
+**M5** (§11 ไม่มี checklist เดิม — รายการนี้สรุปสิ่งที่ส่งมอบ)
+- [x] `cvalue.py` (wrap32, หารปัดเข้าหาศูนย์, `%` ตาม ADR-008, nCk) — เทียบกับนิยามอิสระ (ctypes int32, `Fraction`, `math.comb`) ด้วย hypothesis
+- [x] `fold.py` (AST → AST ใหม่, ไม่แก้ input) — 10k expression สุ่ม (hypothesis) ยืนยันว่าความหมายไม่เปลี่ยน, ไม่พับ `/0` `%0` และ nCk ที่ล้น, `0 && e` / `1 \|\| e` พับได้เพราะ `e` ไม่ถูกประเมินอยู่แล้ว
+- [x] codegen `-O1`: §6.9 ข้อ 3–8; golden asm ของ `example_m1.c` และภาคผนวก B (`tests/golden/*_O1.s`)
+- [x] -O equivalence: ทุก golden, ทุก example (SPIM) และ expression สุ่ม 6 seed × 40 ทั้ง `-O0`/`-O1` เทียบ `cvalue.py`; ✅ ตัวอย่างหลักรันบน MARS ด้วย
+- [x] จำนวนคำสั่งลด 32.3% บน `examples/` (เกณฑ์ ≥ 30%)
 
 ---
 

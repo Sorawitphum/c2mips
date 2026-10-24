@@ -40,8 +40,6 @@ def _fail(message: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _args(sys.argv[1:] if argv is None else argv)
-    if args.opt == 1:
-        return _fail("-O1 is not implemented yet")
     name = str(args.input)
     try:
         src = args.input.read_bytes().decode("utf-8").replace("\r\n", "\n")
@@ -58,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.emit == "ast":
             sys.stdout.write(sexpr(parse(lex(src, name))) + "\n")
             return 0
-        asm, warnings = compile_program(src, name, runtime=not args.no_runtime)
+        asm, warnings = compile_program(src, name, runtime=not args.no_runtime,
+                                        opt=args.opt)
     except CompileError as e:
         for d in e.diagnostics:
             sys.stderr.write(d.render(src))
