@@ -138,7 +138,18 @@ class For:
     head_end: Pos
 
 
-Stmt = Block | Decl | Return | ExprStmt | Empty | Printf | If | While | For
+@dataclass
+class Scanf:
+    """`scanf("%d", &name);` (README FR-10) -> syscall 5 (read_int)."""
+
+    name: str
+    pos: Pos
+    end: Pos
+    name_pos: Pos
+    resolved: Symbol | None = None  # filled by sema
+
+
+Stmt = Block | Decl | Return | ExprStmt | Empty | Printf | If | While | For | Scanf
 
 
 @dataclass
@@ -194,6 +205,8 @@ def sexpr(node: Program | Function | Stmt | Expr) -> str:
         case For(init=i, cond=c, step=st, body=b):
             parts = ["_" if x is None else sexpr(x) for x in (i, c, st)]
             return "(" + " ".join(["for", *parts, sexpr(b)]) + ")"
+        case Scanf(name=name):
+            return f"(scanf {name})"
         case Printf(segments=segs, args=args):
             fmt = " ".join("%d" if isinstance(s, FmtD) else quote(s) for s in segs)
             return "(" + " ".join(["printf", f"({fmt})", *map(sexpr, args)]) + ")"

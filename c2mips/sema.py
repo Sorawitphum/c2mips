@@ -232,6 +232,8 @@ class _Sema:
             case ast.Printf():
                 for a in s.args:
                     self.expr(a)
+            case ast.Scanf():
+                s.resolved = self.lookup(s.name, s.name_pos)
             case ast.If():
                 self.expr(s.cond)
                 self.stmt(s.then)

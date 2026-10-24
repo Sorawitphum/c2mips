@@ -9,3 +9,4 @@ htmlcov/
 build/
 dist/
 /*.s
+tests/random/failures/

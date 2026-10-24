@@ -154,6 +154,8 @@ class _Parser:
             return ast.Return(e, tok.pos, _end(self.expect(K.SEMI)))
         if tok.kind is K.IDENT and tok.text == "printf":
             return self.printf_stmt()
+        if tok.kind is K.IDENT and tok.text == "scanf":
+            return self.scanf_stmt()
         if tok.kind is K.LBRACE:
             return self.block()
         if tok.kind is K.SEMI:
@@ -247,6 +249,20 @@ class _Parser:
                         name.pos)
         return ast.Printf(segments, args, name.pos, end)
 
+    def scanf_stmt(self) -> ast.Scanf:
+        """README FR-10: only `scanf("%d", &x);`, anything else is E030."""
+        name = self.advance()
+        shape = [(K.LPAREN, None), (K.STRING, "%d"), (K.COMMA, None), (K.AMP, None),
+                 (K.IDENT, None), (K.RPAREN, None), (K.SEMI, None)]
+        toks = []
+        for kind, value in shape:
+            tok = self.tok
+            if tok.kind is not kind or (value is not None and tok.value != value):
+                raise error("E030", "only 'scanf(\"%d\", &x);' is supported", name.pos)
+            toks.append(self.advance())
+        var = toks[4]
+        return ast.Scanf(str(var.value), name.pos, _end(toks[-1]), var.pos)
+
     # -- expressions ------------------------------------------------------------
 
     def expr(self) -> ast.Expr:
@@ -298,8 +314,8 @@ class _Parser:
             assert isinstance(tok.value, int)
             return ast.IntLit(tok.value, tok.pos)
         if tok.kind is K.IDENT:
-            if tok.text == "printf":
-                raise error("E025", "'printf' can only be used as a statement", tok.pos)
+            if tok.text in ("printf", "scanf"):
+                raise error("E025", f"'{tok.text}' can only be used as a statement", tok.pos)
             if tok.text in C_KEYWORDS:
                 raise self.unexpected("expression")
             self.advance()

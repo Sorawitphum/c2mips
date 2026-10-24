@@ -281,6 +281,11 @@ class _Codegen:
                 self.printf(s)
             case ast.Decl():
                 self.decl(s)
+            case ast.Scanf():
+                assert s.resolved is not None, "sema resolves the scanf target"
+                self.emit("li", "$v0", "5", comment="read_int: one integer per line (S21)")
+                self.emit("syscall")
+                self.emit("sw", "$v0", f"{s.resolved.offset}($fp)")
 
     def decl(self, s: ast.Decl) -> None:
         for (_, init), sym in zip(s.items, s.symbols, strict=True):

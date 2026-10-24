@@ -1,6 +1,6 @@
 # c2mips — คอมไพเลอร์ภาษา C (ชุดย่อย) → MIPS32 Assembly
 
-> **สถานะ:** แผนออกแบบ v0.1 — ยังไม่เริ่ม implement · 24 ต.ค. 2026
+> **สถานะ:** v0.1 — implement ครบ M0–M6 แล้ว (checklist ใน [§11](#11-แผนงาน-milestones)) · วิธีใช้และวิธีทดสอบ: [`docs/usage.md`](docs/usage.md) · แผนเดิม 24 ต.ค. 2026
 > **โจทย์:** แปลงโปรแกรม C ที่คำนวณ `+ - * /` และ `nCk` (combination = n! / (k!(n−k)!)) เป็นไฟล์ `.s` ที่รันได้บน SPIM (และ MARS)
 > **เครื่องหมาย ✅** = ข้อเท็จจริงที่ทดลองรันจริงแล้วบน SPIM 8.0 ระหว่างทำแผนนี้ (ดู [§13](#13-ผลการ-spike-ที่ยืนยันแล้ว))
 
@@ -108,7 +108,7 @@ Exit code ของ `c2mips`: `0` สำเร็จ · `1` compile error · `2`
 | FR-7 | `< <= > >= == !=`, `&& \|\| !`, `if/else`, `while`, `for` | M4 |
 | FR-8 | ฟังก์ชันของผู้ใช้ (≤ 4 พารามิเตอร์ int), recursion, prototype | M4 |
 | FR-9 | `%` (modulo) — stretch | M4 |
-| FR-10 | `scanf("%d", &x)` รูปเดียว → syscall 5 — stretch | M6 |
+| FR-10 | `scanf("%d", &x)` รูปเดียว → syscall 5 — stretch; input ต้องเป็นจำนวนเต็มบรรทัดละตัว (S21) | M6 |
 
 ### 3.2 Non-functional
 
@@ -167,6 +167,7 @@ stmt        = decl
 decl        = "int" declarator { "," declarator } ";" ;
 declarator  = IDENT [ "=" expr ] ;
 printf_stmt = "printf" "(" STRING { "," expr } ")" ";" ;
+scanf_stmt  = "scanf" "(" "\"%d\"" "," "&" IDENT ")" ";" ;           (* M6, FR-10; เป็น stmt เหมือน printf *)
 expr        = assign ;
 assign      = IDENT "=" assign | logic_or ;                       (* right-assoc *)
 logic_or    = logic_and { "||" logic_and } ;                      (* M4 *)
@@ -976,6 +977,14 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 - [x] -O equivalence: ทุก golden, ทุก example (SPIM) และ expression สุ่ม 6 seed × 40 ทั้ง `-O0`/`-O1` เทียบ `cvalue.py`; ✅ ตัวอย่างหลักรันบน MARS ด้วย
 - [x] จำนวนคำสั่งลด 32.3% บน `examples/` (เกณฑ์ ≥ 30%)
 
+**M6** (§11 ไม่มี checklist เดิม — รายการนี้สรุปสิ่งที่ส่งมอบ)
+- [x] `tests/random/gen.py`: โปรแกรมสุ่ม (ฟังก์ชันของผู้ใช้ 0–2 ตัว, ตัวแปร, printf/assignment, expression ลึก ≤ 5 ทุก operator + `nCk`); ประเมินด้วย `cvalue.py` และสุ่มใหม่ถ้าเจอ UB ของ C หรือ panic; `--seed S` ทำซ้ำได้ทุกครั้ง
+- [x] shrinker อัตโนมัติ: ตัด statement, แทน subtree ด้วยใบ/ลูก, inline call จนเหลือโปรแกรมเล็กสุดที่ยังพัง → `tests/random/failures/seed_<S>.c`
+- [x] `pytest -m random`: SPIM `-O0` == SPIM `-O1` == gcc == `cvalue.py`; ค่าเริ่มต้น 20 โปรแกรม, CI 500 ต่อ run, nightly 10k (`.github/workflows/nightly.yml`)
+- [x] MARS ก่อน release: `tests/test_mars.py` 18 โปรแกรม × 2 ระดับ (S22) — nightly ดาวน์โหลด jar และตรวจ sha256
+- [x] `scanf("%d", &x)` (FR-10, stretch) + ข้อตกลง input (S21); รูปอื่น → `E030`, ใน expression → `E025`
+- [x] เอกสาร: [`docs/usage.md`](docs/usage.md)
+
 ---
 
 ## 12. ความเสี่ยง
@@ -1024,6 +1033,9 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 | S18 | (5) `div $t1, $t0` บน MARS เป็นคำสั่งจริง 1 คำสั่ง (4 ไบต์ เท่ากับ SPIM) ไม่แทรก check: `5/0` ไม่ trap, LO ค้างค่าเก่า (เหมือน SPIM); `INT_MIN/-1` MARS ได้ `-2147483648` แต่ SPIM LO ค้างค่าเก่า; `-7/2 = -3` ทั้งคู่ | ✅ ผลดิบต่างกัน แต่ guard §6.4 ให้ผลเดียวกันทั้งคู่ |
 | S19 | `runtime.s` บน MARS: exhaustive 1,819 กรณีตรง `math.comb` (0.6 วินาที); overflow (34,16 · 65537,2 · 100000,2 · 2147483647,1073741823) → ข้อความถูก + exit 70; `__rt_div0` → exit 70; `example.s` (ภาคผนวก B) → `a = 23` / `C(10,3) = 120` exit 0 | ✅ S3/S4/S11 เป็นจริงบน MARS ด้วย — ยังไม่ต้องมี `--target mars` (Q30) |
 | S20 | harness ของ MARS: หลังโปรแกรมจบ MARS พิมพ์บรรทัดว่างเพิ่ม 1 บรรทัด (`\r\n` บน Windows); error ตอน assemble ออก stdout แต่ **exit 0** ถ้าไม่ใส่ `ae<n>` | MARS harness (M6) ต้องตัดบรรทัดท้าย และใช้ `nc ae<n>` |
+| S21 | (M6) `read_int` (syscall 5) ทั้ง SPIM และ MARS อ่าน **บรรทัดละหนึ่งจำนวน** (มีช่องว่างรอบได้); ต่างกันเมื่อ input ผิดรูป: `12 34` ในบรรทัดเดียว SPIM ได้ 12 แล้ว 0 แต่ MARS runtime error · EOF: SPIM ได้ 0, MARS `NullPointerException` · ไม่ใช่ตัวเลข: SPIM ได้ 0, MARS error · `scanf` ของ gcc อ่าน `12 34` ได้สองตัว | FR-10: นิยาม input เป็นจำนวนเต็มบรรทัดละตัวเท่านั้น นอกนั้น undefined |
+| S22 | (M6) ชุด MARS compat 18 โปรแกรม × `-O0`/`-O1` (รวม panic ทั้งสองแบบ, `.byte` UTF-8, `scanf`) ได้ stdout + exit code ตรงกับ SPIM ทุกตัว | ADR-005 ยืนยันด้วย test (`tests/test_mars.py`, `MARS_JAR=...`) |
+| S23 | (M6) random 500 (seed 0–499) บน Windows: 499 ผ่าน; seed 371 ย่อเหลือ `-((-2147483647 - 1) / v)` โดย `v = 2` — c2mips (`-O0`/`-O1`) และ `cvalue.py` ได้ `1073741824` (ถูกตาม C ไม่มี overflow) แต่ **MinGW gcc 6.3.0** ได้ `-1073741824` ทั้ง `-O0`/`-O2` (fold `-(a/b)` เป็น `(-a)/b` ผิดเมื่อ `a == INT_MIN` ภายใต้ `-fwrapv`); gcc 16.1 ได้ `1073741824` | oracle ต้องเป็น gcc รุ่นใหม่ (CI ใช้ gcc 13 ของ Ubuntu 24.04); บน Windows อย่าใช้ MinGW 6.3 เป็น oracle |
 
 ---
 

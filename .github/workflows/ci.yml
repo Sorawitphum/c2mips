@@ -11,5 +11,9 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check . && mypy --strict c2mips
       - run: pytest -q --cov=c2mips --cov-branch --cov-fail-under=90
-      # M6: enable once tests/random exists (pytest exits 5 when no test is collected)
-      # - run: pytest -q -m random --random-count 500
+      # README 9.4 / M6: 500 random programs; the first seed is the run number, so a failure
+      # can be repeated with `python tests/random/gen.py --seed S`
+      - run: pytest -q -m random --random-count 500 --random-seed $((GITHUB_RUN_NUMBER * 500))
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with: { name: random-failures, path: tests/random/failures/, if-no-files-found: ignore }

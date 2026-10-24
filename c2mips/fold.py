@@ -54,7 +54,7 @@ def _stmt(s: ast.Stmt) -> ast.Stmt:
         case ast.For():
             init = _decl(s.init) if isinstance(s.init, ast.Decl) else _opt(s.init)
             return replace(s, init=init, cond=_opt(s.cond), step=_opt(s.step), body=_stmt(s.body))
-        case ast.Empty():
+        case ast.Empty() | ast.Scanf():
             return s
     raise TypeError(s)
 

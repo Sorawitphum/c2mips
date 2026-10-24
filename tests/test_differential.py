@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import read_expected, run_gcc
+from conftest import read_expected, run_gcc, stdin_for
 
 PROGRAMS = sorted((Path(__file__).parent / "programs").glob("*.c"))
 NO_ORACLE = "// no-gcc-oracle:"
@@ -19,7 +19,8 @@ DIFFERENTIAL = [p for p in PROGRAMS
 @pytest.mark.gcc
 @pytest.mark.parametrize("src", DIFFERENTIAL, ids=lambda p: p.stem)
 def test_gcc_agrees_with_golden(src: Path, tmp_path: Path) -> None:
-    assert run_gcc(src, tmp_path) == read_expected(src.with_suffix(".expected"))
+    want = read_expected(src.with_suffix(".expected"))
+    assert run_gcc(src, tmp_path, stdin=stdin_for(src)) == want
 
 
 def test_only_documented_ub_cases_are_excluded() -> None:

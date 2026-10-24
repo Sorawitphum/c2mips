@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import REPO, read_expected, run_spim
+from conftest import REPO, read_expected, run_spim, stdin_for
 
 from c2mips.driver import compile_source
 
@@ -59,7 +59,8 @@ def test_o1_program_matches_golden(src: Path, tmp_path: Path) -> None:
     # -O equivalence: *.expected is what -O0 prints (test_programs.py), so -O1 must match it.
     asm = tmp_path / f"{src.stem}.s"
     asm.write_bytes(compile_file(src, 1).encode("ascii"))
-    assert run_spim(asm, timeout=30) == read_expected(src.with_suffix(".expected"))
+    want = read_expected(src.with_suffix(".expected"))
+    assert run_spim(asm, timeout=30, stdin=stdin_for(src)) == want
 
 
 @pytest.mark.spim

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import read_expected, run_spim
+from conftest import read_expected, run_spim, stdin_for
 
 from c2mips.driver import compile_source
 
@@ -21,7 +21,7 @@ def compile_file(src: Path) -> str:
 def test_program(src: Path, tmp_path: Path) -> None:
     asm = tmp_path / f"{src.stem}.s"
     asm.write_bytes(compile_file(src).encode("ascii"))
-    assert run_spim(asm) == read_expected(src.with_suffix(".expected"))
+    assert run_spim(asm, stdin=stdin_for(src)) == read_expected(src.with_suffix(".expected"))
 
 
 @pytest.mark.parametrize("src", PROGRAMS, ids=lambda p: p.stem)

@@ -33,6 +33,7 @@ testpaths = ["tests"]
 markers = [
     "spim: needs the spim simulator (skipped when spim is not found)",
     "gcc: needs gcc as the differential oracle (skipped when gcc is not found)",
+    "mars: needs java and $MARS_JAR (MARS 4.5 compatibility, README 9.2)",
     "random: random differential tests (M6)",
 ]
 
