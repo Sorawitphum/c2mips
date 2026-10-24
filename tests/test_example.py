@@ -1,4 +1,4 @@
-"""Emitted assembly has the same shape as README appendix B (6.3-6.7, NFR-2)."""
+"""Emitted assembly has the same shape as Spec appendix B (6.3-6.7, NFR-2)."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ APPENDIX_B_OUT = "a = 23\nC(10,3) = 120\n"
 
 
 def appendix(heading: str, fence: str) -> str:
-    """First fenced block of the given kind after a README heading."""
-    readme = (REPO / "README.md").read_text(encoding="utf-8")
-    section = readme.split(heading, 1)[1]
+    """First fenced block of the given kind after a Spec heading."""
+    spec = (REPO / "Spec.md").read_text(encoding="utf-8")
+    section = spec.split(heading, 1)[1]
     return section.split(f"```{fence}\n", 1)[1].split("```", 1)[0]
 
 
@@ -126,9 +126,9 @@ def test_example_c_on_gcc(tmp_path: Path) -> None:
 @pytest.mark.spim
 def test_quick_start_as_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                 capfd: pytest.CaptureFixture[str]) -> None:
-    # README 2: `c2mips examples/hello_nck.c -o hello_nck.s` then spim (or --run)
-    readme = (REPO / "README.md").read_text(encoding="utf-8")
-    section = readme.split("## 2. Quick start", 1)[1].split("### CLI", 1)[0]
+    # Spec 2: `c2mips examples/hello_nck.c -o hello_nck.s` then spim (or --run)
+    spec = (REPO / "Spec.md").read_text(encoding="utf-8")
+    section = spec.split("## 2. Quick start", 1)[1].split("### CLI", 1)[0]
     quick = section.split("\nผลลัพธ์ (", 1)[1].split("```\n", 1)[1].split("```", 1)[0]
     assert quick == "C(10,3) = 120\n"
     out = tmp_path / "hello_nck.s"
@@ -139,3 +139,19 @@ def test_quick_start_as_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     capfd.readouterr()
     assert main([str(REPO / "examples" / "hello_nck.c"), "-o", str(out), "--run"]) == 0
     assert capfd.readouterr().out == quick
+
+
+def test_readme_examples_exist_and_hello_output_is_right(tmp_path: Path) -> None:
+    # README.md is the user manual: the examples it names must exist, and the output it
+    # shows for hello_nck.c must be what c2mips really prints.
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    named = set(re.findall(r"`([a-z_0-9]+\.c)`", readme))
+    assert {"hello_nck.c", "example.c", "fact.c", "fib.c", "gcd.c", "nck_user.c"} <= named
+    for name in named - {"prog.c"}:
+        assert (REPO / "examples" / name).exists(), name
+    assert "$ c2mips examples/hello_nck.c --run\nC(10,3) = 120\n" in readme
+    if SPIM is not None:
+        asm = tmp_path / "hello.s"
+        asm.write_bytes(compile_source((REPO / "examples" / "hello_nck.c").read_text(
+            encoding="utf-8"), "hello_nck.c").encode("ascii"))
+        assert run_spim(asm) == ("C(10,3) = 120\n", 0)

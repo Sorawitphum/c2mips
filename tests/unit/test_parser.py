@@ -149,7 +149,7 @@ def test_parse_errors(src: str, code: str, message: str) -> None:
 
 
 def test_scanf_statement() -> None:
-    # README FR-10: exactly scanf("%d", &x);
+    # Spec FR-10: exactly scanf("%d", &x);
     assert body('int x; scanf("%d", &x);') == "(decl (x)) (scanf x)"
 
 

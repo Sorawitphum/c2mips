@@ -1,4 +1,4 @@
-"""AST -> AsmLine, following the templates of README 6.2-6.7 (accumulator $t0 + stack)."""
+"""AST -> AsmLine, following the templates of Spec 6.2-6.7 (accumulator $t0 + stack)."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def _prec(e: ast.Expr) -> int:
 
 
 def codegen(prog: ast.Program, source: str, opt: int = 0) -> list[AsmLine]:
-    """opt=1 adds the README 6.9 templates (leaf operand, constant divisor); folding is
+    """opt=1 adds the Spec 6.9 templates (leaf operand, constant divisor); folding is
     fold.py's job and happens before this."""
     return _Codegen(source, opt).program(prog)
 
@@ -152,7 +152,7 @@ def _drop_branches_to_next_line(lines: list[AsmLine]) -> list[AsmLine]:
 
 
 def _describe(e: ast.Expr) -> str:
-    """Short comment for the instruction that produces e (README appendix B style)."""
+    """Short comment for the instruction that produces e (Spec appendix B style)."""
     if _depth(e) <= 2:
         return _render(e)
     if isinstance(e, ast.Binary):
@@ -233,7 +233,7 @@ class _Codegen:
             parts = [f"{title}: " + "  ".join(f"{s.name}@{s.offset}" for s in syms)
                      for title, syms in (("params", params), ("locals", local)) if syms]
             self.emit("addiu", "$sp", "$sp", str(-4 * info.n_slots), comment="  ".join(parts))
-        for i, p in enumerate(info.symbols[:info.n_params]):  # README 6.2: spill right away
+        for i, p in enumerate(info.symbols[:info.n_params]):  # Spec 6.2: spill right away
             self.emit("sw", f"$a{i}", f"{p.offset}($fp)")
         for s in body.stmts:
             self.stmt(s)
@@ -343,7 +343,7 @@ class _Codegen:
         self.label(f"L{n}_fend")
 
     def printf(self, s: ast.Printf) -> None:
-        # README 4.5: evaluate every argument (pushed) before printing anything. At -O1 a
+        # Spec 4.5: evaluate every argument (pushed) before printing anything. At -O1 a
         # leaf argument is read when it is printed instead: reading has no effect, and
         # nothing else can change a local in between unless an argument assigns one.
         defer = self.opt and not any(map(_has_assign, s.args))
@@ -400,7 +400,7 @@ class _Codegen:
         """Left operand into $t1, right into $t0."""
         self.expr(e.left)
         if self.opt and _is_leaf(e.right):
-            # README 6.9.3: loading a leaf cannot clobber $t1, so skip push/pop
+            # Spec 6.9.3: loading a leaf cannot clobber $t1, so skip push/pop
             self.emit("move", "$t1", "$t0")
             self.expr(e.right)
         else:
@@ -409,7 +409,7 @@ class _Codegen:
             self.pop_t1()
 
     def call(self, e: ast.Call) -> None:
-        """README 6.3: push every argument, load $a0..$a(n-1) from the stack, pop, jal.
+        """Spec 6.3: push every argument, load $a0..$a(n-1) from the stack, pop, jal.
 
         Nothing stays in a register across the jal, so the callee may clobber $t*/$a*.
         """
@@ -465,7 +465,7 @@ class _Codegen:
         elif e.op == "*":
             self.emit("mult", "$t1", "$t0")
             self.emit("mflo", "$t0", comment=note)
-        elif (c := self.constant_divisor(e)) is not None:  # README 6.9.4: no guard needed
+        elif (c := self.constant_divisor(e)) is not None:  # Spec 6.9.4: no guard needed
             if c == 0:
                 self.emit("b", "__rt_div0", comment="x / 0 -> panic (not folded)")
             elif c == -1:
@@ -473,7 +473,7 @@ class _Codegen:
             else:
                 self.emit("div", "$t1", "$t0")
                 self.emit("mflo", "$t0", comment=note)
-        else:  # "/" -- README 6.4 guard
+        else:  # "/" -- Spec 6.4 guard
             n = self.new_label()
             self.emit("beq", "$t0", "$zero", "__rt_div0", comment="divisor == 0 -> panic")
             self.emit("li", "$t2", "-1")
@@ -489,9 +489,9 @@ class _Codegen:
         return e.right.value if self.opt and isinstance(e.right, ast.IntLit) else None
 
     def remainder(self, e: ast.Binary, note: str) -> None:
-        """Same guard as `/` (README 6.4, ADR-008): x % 0 panics, x % -1 == 0."""
+        """Same guard as `/` (Spec 6.4, ADR-008): x % 0 panics, x % -1 == 0."""
         c = self.constant_divisor(e)
-        if c is not None:  # README 6.9.4
+        if c is not None:  # Spec 6.9.4
             if c == 0:
                 self.emit("b", "__rt_div0", comment="x % 0 -> panic (not folded)")
             elif c == -1:

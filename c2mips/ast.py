@@ -1,4 +1,4 @@
-"""AST (README 5.3). Every node has .pos; statements also have .end (just past their last token)."""
+"""AST (Spec 5.3). Every node has .pos; statements also have .end (just past their last token)."""
 
 from __future__ import annotations
 
@@ -140,7 +140,7 @@ class For:
 
 @dataclass
 class Scanf:
-    """`scanf("%d", &name);` (README FR-10) -> syscall 5 (read_int)."""
+    """`scanf("%d", &name);` (Spec FR-10) -> syscall 5 (read_int)."""
 
     name: str
     pos: Pos

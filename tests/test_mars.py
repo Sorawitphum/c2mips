@@ -1,4 +1,4 @@
-"""MARS compatibility (README 9.2 "MARS compat", ADR-005): a subset of the goldens must give
+"""MARS compatibility (Spec 9.2 "MARS compat", ADR-005): a subset of the goldens must give
 the same stdout + exit code on MARS 4.5 as on SPIM, at -O0 and -O1. Opt-in: set MARS_JAR.
 
 The subset covers every feature and both runtime panics; panics and scanf are included
@@ -24,7 +24,7 @@ PROGRAMS = REPO / "tests" / "programs"
 
 
 def test_subset_exists() -> None:
-    assert len(SUBSET) >= 10  # README 9.2: at least 10 programs
+    assert len(SUBSET) >= 10  # Spec 9.2: at least 10 programs
     for stem in SUBSET:
         assert (PROGRAMS / f"{stem}.c").exists(), stem
 

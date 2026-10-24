@@ -1,4 +1,4 @@
-"""Tokens (README 4.1, 5.3)."""
+"""Tokens (Spec 4.1, 5.3)."""
 
 from __future__ import annotations
 

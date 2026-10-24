@@ -1,4 +1,4 @@
-"""The whole pipeline (README 5.1): lex -> parse -> sema -> fold (-O1) -> codegen -> emit."""
+"""The whole pipeline (Spec 5.1): lex -> parse -> sema -> fold (-O1) -> codegen -> emit."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from c2mips.sema import analyze
 def compile_program(src: str, filename: str, *, runtime: bool = True,
                     opt: int = 0) -> tuple[str, list[Diagnostic]]:
     """C source -> (.s text, warnings). Raises CompileError. `filename` is used in
-    diagnostics; opt is 0 (-O0) or 1 (-O1: fold + the README 6.9 templates)."""
+    diagnostics; opt is 0 (-O0) or 1 (-O1: fold + the Spec 6.9 templates)."""
     src = src.replace("\r\n", "\n")
     prog = analyze(parse(lex(src, filename)))
     if opt:

@@ -1,4 +1,4 @@
-"""CLI (README 2). Exit codes: 0 ok, 1 compile error, 2 bad usage / unreadable file."""
+"""CLI (Spec 2). Exit codes: 0 ok, 1 compile error, 2 bad usage / unreadable file."""
 
 from __future__ import annotations
 

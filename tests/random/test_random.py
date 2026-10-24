@@ -1,4 +1,4 @@
-"""Random differential testing (README 9.4): for every seed, c2mips -O0 and -O1 on SPIM,
+"""Random differential testing (Spec 9.4): for every seed, c2mips -O0 and -O1 on SPIM,
 gcc -fwrapv + nck_ref.c, and cvalue.py must all print the same thing.
 
     pytest -m random --random-count 500 [--random-seed S]

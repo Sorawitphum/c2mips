@@ -1,4 +1,4 @@
-"""The random program generator and shrinker themselves (README 9.4), without SPIM or gcc."""
+"""The random program generator and shrinker themselves (Spec 9.4), without SPIM or gcc."""
 
 from __future__ import annotations
 

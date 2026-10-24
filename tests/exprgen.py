@@ -1,5 +1,5 @@
 """Shared by the fold and random-expression tests: evaluate an expression tree with the
-c2mips semantics of README 4.3 (via c2mips.cvalue), and generate random ones (README 9.4)."""
+c2mips semantics of Spec 4.3 (via c2mips.cvalue), and generate random ones (Spec 9.4)."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ def evaluate(e: ast.Expr, env: dict[str, int]) -> int | str:
 
 
 def c_text(e: ast.Expr) -> str:
-    """Fully parenthesised C source for e (INT_MIN cannot be a literal, README Q4)."""
+    """Fully parenthesised C source for e (INT_MIN cannot be a literal, Spec Q4)."""
     match e:
         case ast.IntLit(value=v):
             return "(-2147483647 - 1)" if v == cvalue.INT_MIN else f"({v})" if v < 0 else str(v)
@@ -74,7 +74,7 @@ def random_expr(rng: random.Random, depth: int, var_names: list[str]) -> ast.Exp
     r = rng.random()
     if r < 0.1:
         return ast.Unary(rng.choice("-!"), random_expr(rng, depth - 1, var_names), P)
-    if r < 0.18:  # README 9.4: nCk(a, b) with a in [0, 40], b in [-2, 42]
+    if r < 0.18:  # Spec 9.4: nCk(a, b) with a in [0, 40], b in [-2, 42]
         return ast.Call("nCk", [ast.IntLit(rng.randint(0, 40), P),
                                 ast.IntLit(rng.randint(-2, 42), P)], P)
     return ast.Binary(rng.choice(OPS), random_expr(rng, depth - 1, var_names),

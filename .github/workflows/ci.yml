@@ -11,7 +11,7 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: ruff check . && mypy --strict c2mips
       - run: pytest -q --cov=c2mips --cov-branch --cov-fail-under=90
-      # README 9.4 / M6: 500 random programs; the first seed is the run number, so a failure
+      # Spec 9.4 / M6: 500 random programs; the first seed is the run number, so a failure
       # can be repeated with `python tests/random/gen.py --seed S`
       - run: pytest -q -m random --random-count 500 --random-seed $((GITHUB_RUN_NUMBER * 500))
       - if: failure()

@@ -1,4 +1,4 @@
-"""Lexer: tokens, line:col, literal range, comments, #include (README 4.1, 9.2)."""
+"""Lexer: tokens, line:col, literal range, comments, #include (Spec 4.1, 9.2)."""
 
 from __future__ import annotations
 

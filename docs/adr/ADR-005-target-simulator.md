@@ -1,9 +1,9 @@
 # ADR-005: Simulator เป้าหมาย
 
-> สำเนาจาก README.md §7 — README เป็นต้นฉบับ
+> สำเนาจาก Spec.md §7 — Spec เป็นต้นฉบับ
 
 
-**Status:** Accepted (ส่วน MARS ยืนยันใน M0 แล้ว — README §13 S14–S20) · **Date:** 2026-10-24
+**Status:** Accepted (ส่วน MARS ยืนยันใน M0 แล้ว — Spec §13 S14–S20) · **Date:** 2026-10-24
 
 | Option | ข้อดี | ข้อเสีย |
 |---|---|---|

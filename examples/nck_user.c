@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "c2mips.h"
 
-/* README ADR-004: n!/(k!(n-k)!) written by the user agrees with the builtin nCk for every
+/* Spec ADR-004: n!/(k!(n-k)!) written by the user agrees with the builtin nCk for every
    n <= 12 (13! no longer fits in int, which is why the builtin does not use it). */
 int fact(int n) {
     if (n <= 1)

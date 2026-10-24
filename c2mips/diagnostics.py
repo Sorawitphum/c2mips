@@ -1,4 +1,4 @@
-"""gcc-style diagnostics: `file:line:col: error[Exxx]: message`, source line, caret (README 10)."""
+"""gcc-style diagnostics: `file:line:col: error[Exxx]: message`, source line, caret (Spec 10)."""
 
 from __future__ import annotations
 

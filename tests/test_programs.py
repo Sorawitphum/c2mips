@@ -1,4 +1,4 @@
-"""E2E golden: programs/*.c -> SPIM stdout + exit code == *.expected (README 9.2, 9.3)."""
+"""E2E golden: programs/*.c -> SPIM stdout + exit code == *.expected (Spec 9.2, 9.3)."""
 
 from __future__ import annotations
 

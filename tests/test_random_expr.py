@@ -1,4 +1,4 @@
-"""Random expressions (README 9.4 generator, ahead of M6): SPIM output at -O0 and -O1 must
+"""Random expressions (Spec 9.4 generator, ahead of M6): SPIM output at -O0 and -O1 must
 both equal cvalue.py. Leaves are literals or variables holding constants, so -O1 both folds
 (literals) and uses the leaf-operand / constant-divisor templates (variables)."""
 

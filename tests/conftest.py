@@ -1,4 +1,4 @@
-"""Shared test harness (README §9.5)."""
+"""Shared test harness (Spec §9.5)."""
 
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ def _find_spim() -> str | None:
 
 SPIM = _find_spim()
 GCC = os.environ.get("GCC") or shutil.which("gcc")
-# MARS 4.5 jar (README S14-S20); not downloaded by the test suite, so opt-in via $MARS_JAR.
+# MARS 4.5 jar (Spec S14-S20); not downloaded by the test suite, so opt-in via $MARS_JAR.
 MARS_JAR = os.environ.get("MARS_JAR") if shutil.which("java") else None
 
 
 def stdin_for(src: Path) -> str:
-    """programs/x.c may come with x.stdin: one integer per line for scanf (README S21)."""
+    """programs/x.c may come with x.stdin: one integer per line for scanf (Spec S21)."""
     p = src.with_suffix(".stdin")
     return p.read_text(encoding="utf-8") if p.exists() else ""
 
@@ -54,7 +54,7 @@ def run_spim(asm: Path, timeout: float = 10, stdin: str = "") -> tuple[str, int]
 
 
 def run_gcc(src: Path, workdir: Path, timeout: float = 10, stdin: str = "") -> tuple[str, int]:
-    """Oracle (README 3.2 NFR-1): gcc -fwrapv + ref/nck_ref.c; (stdout, exit code & 0xFF)."""
+    """Oracle (Spec 3.2 NFR-1): gcc -fwrapv + ref/nck_ref.c; (stdout, exit code & 0xFF)."""
     if GCC is None:
         pytest.skip("gcc not found")
     exe = workdir / f"{src.stem}.exe"
@@ -69,7 +69,7 @@ def run_gcc(src: Path, workdir: Path, timeout: float = 10, stdin: str = "") -> t
 
 
 def run_mars(asm: Path, timeout: float = 60, stdin: str = "") -> tuple[str, int]:
-    """Run asm on MARS 4.5 (README S14-S20): `nc` = no banner, `ae2` = exit 2 on an
+    """Run asm on MARS 4.5 (Spec S14-S20): `nc` = no banner, `ae2` = exit 2 on an
     assemble error (MARS exits 0 otherwise), latin-1 stdout so .byte output stays exact."""
     if MARS_JAR is None:
         pytest.skip("set MARS_JAR to a Mars4_5.jar (and have java) to run MARS tests")
@@ -89,7 +89,7 @@ def read_expected(path: Path) -> tuple[str, int]:
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption("--random-count", type=int, default=20,
-                     help="random programs per run (README 9.4; CI 500, nightly 10000)")
+                     help="random programs per run (Spec 9.4; CI 500, nightly 10000)")
     parser.addoption("--random-seed", type=int, default=0,
                      help="first seed; seeds are random-seed .. random-seed + count - 1")
 

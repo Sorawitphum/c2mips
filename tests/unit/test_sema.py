@@ -1,4 +1,4 @@
-"""Sema: scopes, shadowing, one slot per declaration, FuncInfo (README 5.3, 6.2, 9.2)."""
+"""Sema: scopes, shadowing, one slot per declaration, FuncInfo (Spec 5.3, 6.2, 9.2)."""
 
 from __future__ import annotations
 

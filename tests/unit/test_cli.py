@@ -1,4 +1,4 @@
-"""CLI (README 2): -o, --emit, --no-runtime, --run, exit codes 0/1/2."""
+"""CLI (Spec 2): -o, --emit, --no-runtime, --run, exit codes 0/1/2."""
 
 from __future__ import annotations
 

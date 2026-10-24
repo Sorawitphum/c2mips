@@ -1,4 +1,4 @@
-"""Recursive-descent parser, one method per rule of README 4.2. Stops at the first error.
+"""Recursive-descent parser, one method per rule of Spec 4.2. Stops at the first error.
 
 C constructs outside MiniC (other types, pointers, ++, +=, break, ...) are reported as
 E030 "not supported" so the message is not a confusing syntax error.
@@ -250,7 +250,7 @@ class _Parser:
         return ast.Printf(segments, args, name.pos, end)
 
     def scanf_stmt(self) -> ast.Scanf:
-        """README FR-10: only `scanf("%d", &x);`, anything else is E030."""
+        """Spec FR-10: only `scanf("%d", &x);`, anything else is E030."""
         name = self.advance()
         shape = [(K.LPAREN, None), (K.STRING, "%d"), (K.COMMA, None), (K.AMP, None),
                  (K.IDENT, None), (K.RPAREN, None), (K.SEMI, None)]
@@ -345,7 +345,7 @@ class _Parser:
 
 
 def _parse_format(tok: Token) -> tuple[list[str | ast.FmtD], int]:
-    """Split a printf format into literal text and %d (README 4.5), from the raw token text
+    """Split a printf format into literal text and %d (Spec 4.5), from the raw token text
     so E026 can point at the exact column of the bad conversion."""
     raw = tok.text[1:-1]
     segments: list[str | ast.FmtD] = []

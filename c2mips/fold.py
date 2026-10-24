@@ -1,4 +1,4 @@
-"""Constant folding for -O1 (README 6.9): AST -> new AST, the input is not modified.
+"""Constant folding for -O1 (Spec 6.9): AST -> new AST, the input is not modified.
 
 Only an operator whose operands are all constants is folded, with the semantics of
 cvalue.py. A runtime error (x / 0, x % 0, nCk overflow) is never folded, so -O1 panics

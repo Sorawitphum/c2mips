@@ -1,4 +1,4 @@
-"""Compile-error golden: errors/*.c -> stderr == *.err, exit 1 (README 10, 9.2)."""
+"""Compile-error golden: errors/*.c -> stderr == *.err, exit 1 (Spec 10, 9.2)."""
 
 from __future__ import annotations
 
@@ -34,6 +34,6 @@ def test_every_lexer_parser_code_has_an_error_test() -> None:
 
 
 def test_sema_codes_have_error_tests() -> None:
-    # README 9.6: every diagnostic code has a test (E040 is generated in test_emitter.py).
+    # Spec 9.6: every diagnostic code has a test (E040 is generated in test_emitter.py).
     codes = {p.stem.split("_")[0].upper() for p in ERRORS}
     assert {"E020", "E021", "E022", "E023", "E024", "E028", "E029", "W001"} <= codes

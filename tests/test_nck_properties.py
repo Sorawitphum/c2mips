@@ -1,4 +1,4 @@
-"""README 9.3 N16 (Pascal) and N17 (symmetry), compiled by c2mips and run on SPIM.
+"""Spec 9.3 N16 (Pascal) and N17 (symmetry), compiled by c2mips and run on SPIM.
 
 M3 has no loops, so the checks are generated as straight-line C; each prints the
 difference of the two sides, which must be 0. Chunks keep each program far below the

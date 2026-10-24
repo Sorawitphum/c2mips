@@ -1,4 +1,4 @@
-"""E2E differential (README 9.2, NFR-1): gcc -fwrapv + ref/nck_ref.c agrees with every golden.
+"""E2E differential (Spec 9.2, NFR-1): gcc -fwrapv + ref/nck_ref.c agrees with every golden.
 
 test_programs.py checks SPIM == *.expected; this checks gcc == *.expected, so SPIM == gcc.
 """
@@ -30,4 +30,4 @@ def test_only_documented_ub_cases_are_excluded() -> None:
     assert excluded == {"a11_div_by_zero", "a12_div_by_runtime_zero",
                         "expr_div_by_computed_zero", "var_int_min_div_minus_one",
                         "mod_by_zero", "mod_int_min_minus_one",  # ADR-008
-                        "func_fallthrough_returns_zero"}  # README 4.3: UB if the value is used
+                        "func_fallthrough_returns_zero"}  # Spec 4.3: UB if the value is used

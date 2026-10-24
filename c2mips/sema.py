@@ -1,7 +1,7 @@
-"""Semantic analysis (README 5.2, 5.3). Collects every error before stopping.
+"""Semantic analysis (Spec 5.2, 5.3). Collects every error before stopping.
 
 Binds every Var/Assign to a Symbol and gives every declaration its own frame slot
-(README 6.2: slots are never reused across blocks; parameters take the first slots), and
+(Spec 6.2: slots are never reused across blocks; parameters take the first slots), and
 every call to the runtime routine (nCk) or user function it names.
 """
 
@@ -14,7 +14,7 @@ from c2mips import ast
 from c2mips.diagnostics import CompileError, Diagnostic
 from c2mips.tokens import Pos
 
-MAX_PARAMS = 4  # $a0-$a3; stack parameters are not implemented (README 6.2)
+MAX_PARAMS = 4  # $a0-$a3; stack parameters are not implemented (Spec 6.2)
 
 
 class SymKind(enum.Enum):
@@ -139,7 +139,7 @@ class _Sema:
         return first_bodies
 
     def builtin_decl(self, f: ast.Function, b: BuiltinFunc) -> None:
-        """README 4.4 / Q16: a matching prototype (from c2mips.h) is fine; a body is not."""
+        """Spec 4.4 / Q16: a matching prototype (from c2mips.h) is fine; a body is not."""
         if f.body is not None:
             self.error("E024", f"'{b.name}' is a builtin and cannot be defined", f.pos)
         elif len(f.params) != b.arity:

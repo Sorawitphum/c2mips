@@ -1,4 +1,4 @@
-"""M4 exit criteria (README 11): examples fact/fib/gcd, and a user-written nCk that equals
+"""M4 exit criteria (Spec 11): examples fact/fib/gcd, and a user-written nCk that equals
 the builtin for every n <= 12. Expected output is computed here in Python, independently
 of both c2mips and gcc."""
 

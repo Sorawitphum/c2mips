@@ -1,6 +1,6 @@
 # c2mips — วิธีใช้และวิธีทดสอบ
 
-README.md คือ spec ฉบับเต็ม เอกสารนี้สรุปเฉพาะสิ่งที่ต้องใช้ทุกวัน
+Spec.md คือ spec ฉบับเต็ม เอกสารนี้สรุปเฉพาะสิ่งที่ต้องใช้ทุกวัน
 
 ## ติดตั้ง
 
@@ -14,7 +14,7 @@ pip install -e ".[dev]"
 `spim_8.0+dfsg-7_amd64.deb` ของ Debian) แล้วใช้ shim `tools\spim.cmd` ซึ่ง test หาเจอเอง
 (ลำดับ: `$SPIM` → `spim` บน PATH → `tools\spim.cmd`) · สำหรับ `c2mips --run` ให้ตั้ง
 `SPIM=tools\spim.cmd` · gcc ต้องเป็นรุ่นใหม่ (ตั้ง `$GCC` ได้): **MinGW gcc 6.3.0 คำนวณ
-`-(INT_MIN / x)` ผิดภายใต้ `-fwrapv`** (README S23) จึงทำให้ random seed 371 ไม่ผ่านทั้งที่
+`-(INT_MIN / x)` ผิดภายใต้ `-fwrapv`** (Spec S23) จึงทำให้ random seed 371 ไม่ผ่านทั้งที่
 c2mips ถูก
 
 ## ใช้งาน
@@ -27,7 +27,7 @@ c2mips prog.c --emit=tokens      # หรือ ast / asm: พิมพ์ผล
 
 Exit code: `0` สำเร็จ (warning เช่น `W001` ยังได้ 0) · `1` compile error · `2` ใช้งานผิด / อ่านไฟล์ไม่ได้
 
-ภาษา: README §4 · `scanf("%d", &x)` อ่านจำนวนเต็ม **บรรทัดละหนึ่งตัว** (S21)
+ภาษา: Spec §4 · `scanf("%d", &x)` อ่านจำนวนเต็ม **บรรทัดละหนึ่งตัว** (S21)
 
 ## ทดสอบ
 
@@ -58,7 +58,7 @@ test ที่ขาดเครื่องมือจะถูก skip (ไ�
 `tests/errors/eNNN_xxx.c` + `.err` (stderr ตรงตัว รวมบรรทัด source และ `^`) — ถ้า `.err` มีแต่
 warning โปรแกรมต้องคอมไพล์ผ่าน (exit 0)
 
-## Random differential testing (README §9.4)
+## Random differential testing (Spec §9.4)
 
 ```bash
 pytest -m random --random-count 500 --random-seed 1000     # seeds 1000..1499

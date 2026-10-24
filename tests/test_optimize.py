@@ -1,4 +1,4 @@
-"""-O1 (README 6.9, 11 M5): golden asm, -O equivalence on every program, the leaf-operand
+"""-O1 (Spec 6.9, 11 M5): golden asm, -O equivalence on every program, the leaf-operand
 and constant-divisor templates, and the >= 30% instruction reduction on examples/."""
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def count_instructions(asm: str) -> int:
 
 @pytest.mark.parametrize(("src", "golden"), [
     (REPO / "examples" / "example_m1.c", GOLDEN / "example_m1_O1.s"),
-    (REPO / "examples" / "example.c", GOLDEN / "example_O1.s"),  # README appendix B at -O1
+    (REPO / "examples" / "example.c", GOLDEN / "example_O1.s"),  # Spec appendix B at -O1
 ])
 def test_o1_golden(src: Path, golden: Path) -> None:
     assert compile_file(src, 1, runtime=False) == golden.read_text(encoding="utf-8")
@@ -88,7 +88,7 @@ def test_instruction_count_drops_at_least_30_percent_on_examples() -> None:
 
 
 def test_leaf_right_operand_skips_push_and_pop() -> None:
-    # README 6.9.3 / appendix B note: `n + k` is 4 instructions instead of 7
+    # Spec 6.9.3 / appendix B note: `n + k` is 4 instructions instead of 7
     got = code(body_asm("    return x + y;"))
     i = got.index("addu $t0, $t1, $t0")
     assert got[i - 3:i + 2] == ["lw $t0, -4($fp)", "move $t1, $t0", "lw $t0, -8($fp)",
@@ -116,7 +116,7 @@ def test_extended_leaf_rules(src: str, lines: list[str]) -> None:
 
 
 def test_printf_args_are_all_pushed_when_one_assigns() -> None:
-    # README 4.5: with an assignment among the arguments, reading x late could see it.
+    # Spec 4.5: with an assignment among the arguments, reading x late could see it.
     got = code(body_asm('    printf("%d %d", x, x = 5);'))
     assert got.count("addiu $sp, $sp, -4") == 2
 

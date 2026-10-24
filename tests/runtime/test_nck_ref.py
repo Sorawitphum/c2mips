@@ -1,4 +1,4 @@
-"""ref/nck_ref.c vs math.comb on the host (README S13, Q24).
+"""ref/nck_ref.c vs math.comb on the host (Spec S13, Q24).
 
 runtime.s and nck_ref.c are each checked against math.comb, not only against each other,
 so a bug common to both cannot hide.

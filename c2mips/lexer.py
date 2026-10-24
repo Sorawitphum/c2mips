@@ -1,4 +1,4 @@
-"""Lexer: text -> tokens (README 4.1). Stops at the first error."""
+"""Lexer: text -> tokens (Spec 4.1). Stops at the first error."""
 
 from __future__ import annotations
 

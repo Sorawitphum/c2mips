@@ -1,4 +1,4 @@
-"""AsmLine -> .s text (README 6.5, 6.6): column layout, string interning, ASCII-only, E040."""
+"""AsmLine -> .s text (Spec 6.5, 6.6): column layout, string interning, ASCII-only, E040."""
 
 from __future__ import annotations
 

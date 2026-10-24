@@ -1,4 +1,4 @@
-"""Emitter: ASCII-only output, .asciiz/.byte rule, string interning, E040 (README 6.5, 6.6)."""
+"""Emitter: ASCII-only output, .asciiz/.byte rule, string interning, E040 (Spec 6.5, 6.6)."""
 
 from __future__ import annotations
 

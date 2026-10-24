@@ -1,5 +1,5 @@
 # CLAUDE.md
-- spec หลักคือ README.md ห้ามเปลี่ยน semantics ใน §4 หรือ calling convention ใน §6 โดยไม่ถามก่อน
+- spec หลักคือ Spec.md (README.md คือคู่มือผู้ใช้) ห้ามเปลี่ยน semantics ใน §4 หรือ calling convention ใน §6 โดยไม่ถามก่อน
 - ถ้าจำเป็นต้องเปลี่ยน ให้เขียน ADR ใหม่ใน docs/adr/
 - ทำทีละ milestone ตาม §11 และถือว่าเสร็จเมื่อ exit criteria ผ่านเท่านั้น
 - ทุก feature ต้องมี golden test + error test (§14)

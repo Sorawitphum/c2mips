@@ -1,4 +1,4 @@
-"""Reference evaluator for MiniC int arithmetic (README 4.3, 4.4, ADR-006, ADR-008).
+"""Reference evaluator for MiniC int arithmetic (Spec 4.3, 4.4, ADR-006, ADR-008).
 
 Used by fold.py (-O1) and by the tests. `None` means "this is a runtime error": division
 by zero or nCk overflow, which must stay in the program so it panics at runtime.
@@ -39,11 +39,11 @@ def mod(a: int, b: int) -> int | None:
 
 
 def nck(n: int, k: int) -> int | None:
-    """README 4.4: 0 if n < 0, k < 0 or k > n; None if C(n, k) > INT_MAX."""
+    """Spec 4.4: 0 if n < 0, k < 0 or k > n; None if C(n, k) > INT_MAX."""
     if n < 0 or k < 0 or k > n:
         return 0
     k = min(k, n - k)
-    if k > 17:  # C(n, k) >= C(2k, k) >= C(36, 18) > INT_MAX (README 6.8 point 6)
+    if k > 17:  # C(n, k) >= C(2k, k) >= C(36, 18) > INT_MAX (Spec 6.8 point 6)
         return None
     v = math.comb(n, k)
     return v if v <= INT_MAX else None

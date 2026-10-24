@@ -1,4 +1,4 @@
-"""cvalue (README 5.4): the reference evaluator, checked against independent definitions
+"""cvalue (Spec 5.4): the reference evaluator, checked against independent definitions
 (ctypes int32 arithmetic, exact fractions, math.comb)."""
 
 from __future__ import annotations

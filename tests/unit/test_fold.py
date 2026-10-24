@@ -1,4 +1,4 @@
-"""Constant folding (README 6.9, 9.2): 10k random expression trees, oracle cvalue.py.
+"""Constant folding (Spec 6.9, 9.2): 10k random expression trees, oracle cvalue.py.
 
 The contract: folding never changes what the program does, so `x/0` and an overflowing
 nCk stay in the code and still panic at runtime, exactly like -O0."""

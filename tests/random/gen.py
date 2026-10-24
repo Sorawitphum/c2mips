@@ -1,4 +1,4 @@
-"""Random MiniC programs for differential testing, and a shrinker (README 9.4).
+"""Random MiniC programs for differential testing, and a shrinker (Spec 9.4).
 
     python tests/random/gen.py --seed S              # print prog.c
     python tests/random/gen.py --seed S --expected   # print what it must output
@@ -185,7 +185,7 @@ def _expr(rng: random.Random, depth: int, names: list[str], funcs: list[Func]) -
     r = rng.random()
     if r < 0.1:
         return ast.Unary(rng.choice("-!"), _expr(rng, depth - 1, names, funcs), P)
-    if r < 0.17:  # README 9.4: nCk(a, b), a in [0, 40], b in [-2, 42]
+    if r < 0.17:  # Spec 9.4: nCk(a, b), a in [0, 40], b in [-2, 42]
         return ast.Call("nCk", [ast.IntLit(rng.randint(0, 40), P),
                                 ast.IntLit(rng.randint(-2, 42), P)], P)
     if r < 0.27 and funcs:

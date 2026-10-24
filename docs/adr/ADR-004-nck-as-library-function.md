@@ -1,6 +1,6 @@
 # ADR-004: nCk เป็นฟังก์ชัน library ไม่ใช่ operator
 
-> สำเนาจาก README.md §7 — README เป็นต้นฉบับ
+> สำเนาจาก Spec.md §7 — Spec เป็นต้นฉบับ
 
 
 **Status:** Accepted · **Date:** 2026-10-24
