@@ -32,6 +32,7 @@ c2mips = ["py.typed", "runtime/*.s"]
 testpaths = ["tests"]
 markers = [
     "spim: needs the spim simulator (skipped when spim is not found)",
+    "gcc: needs gcc as the differential oracle (skipped when gcc is not found)",
     "random: random differential tests (M6)",
 ]
 

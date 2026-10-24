@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import pytest
-from conftest import REPO
+from conftest import REPO, SPIM, run_gcc, run_spim
 
 from c2mips import RUNTIME_S
+from c2mips.__main__ import main
 from c2mips.driver import compile_source
 
 EXAMPLE_M1 = REPO / "examples" / "example_m1.c"
 GOLDEN_M1 = REPO / "tests" / "golden" / "example_m1.s"
+EXAMPLE = REPO / "examples" / "example.c"
+APPENDIX_B_OUT = "a = 23\nC(10,3) = 120\n"
 
 
 def appendix(heading: str, fence: str) -> str:
@@ -82,35 +86,56 @@ def test_printf_lowering_like_appendix_b() -> None:
     assert code_only(ours) == code_only(theirs)
 
 
-def without_nck_printf_c(src: str) -> str:
-    return "".join(ln for ln in src.splitlines(keepends=True) if "nCk(n, k)" not in ln)
-
-
-def without_nck_printf_s(asm: str) -> list[str]:
-    """Appendix B's .text without the `printf("C(...)", n, k, nCk(n, k))` block."""
-    lines = asm.splitlines()
-    text = lines[next(i for i, ln in enumerate(lines) if ln == "        .text"):]
-    i = next(n for n, ln in enumerate(text) if ln.startswith('# printf("C('))
-    j = next(n for n in range(i, len(text)) if text[n] == "        addiu $sp, $sp, 12")
-    return text[:i] + text[j + 1:]
-
-
-def test_appendix_b_without_nck_instruction_for_instruction() -> None:
-    # M2: everything in appendix B except the nCk call (M3) must match, instruction by
-    # instruction (comments are hand-written there, so they are not compared).
-    ours = compile_source(without_nck_printf_c(APPENDIX_B_C), "example.c", runtime=False)
-    text = ours.splitlines()[ours.splitlines().index("        .text"):]
-    assert code_only(text) == code_only(without_nck_printf_s(APPENDIX_B_S))
-
-
-def test_locals_line_identical_to_appendix_b() -> None:
-    ours = compile_source(without_nck_printf_c(APPENDIX_B_C), "example.c", runtime=False)
-    line = "        addiu $sp, $sp, -12         # locals: n@-4  k@-8  a@-12"
-    assert line in APPENDIX_B_S.splitlines()
-    assert line in ours.splitlines()
-
-
-@pytest.mark.xfail(strict=True, reason="appendix B calls nCk (M3)")
 def test_appendix_b_example_instruction_for_instruction() -> None:
+    # M3: the whole appendix B listing, instruction by instruction (its comments are
+    # hand-written, so they are not compared).
     asm = compile_source(APPENDIX_B_C, "example.c", runtime=False)
     assert code_only(asm.splitlines()) == code_only(APPENDIX_B_S.splitlines())
+
+
+def test_appendix_b_byte_identical_lines() -> None:
+    ours = compile_source(APPENDIX_B_C, "example.c", runtime=False).splitlines()
+    for line in [
+        "        addiu $sp, $sp, -12         # locals: n@-4  k@-8  a@-12",
+        "        jal   __rt_nCk",
+        "# printf(\"C(%d,%d) = %d\\n\", n, k, nCk(n, k));",
+        "__str4: .asciiz \") = \"",
+    ]:
+        assert line in APPENDIX_B_S.splitlines()
+        assert line in ours
+
+
+def test_examples_example_c_is_appendix_b() -> None:
+    assert EXAMPLE.read_text(encoding="utf-8") == APPENDIX_B_C
+
+
+@pytest.mark.spim
+def test_example_c_on_spim(tmp_path: Path) -> None:
+    # S11: appendix B output on SPIM ...
+    asm = tmp_path / "example.s"
+    asm.write_bytes(compile_source(APPENDIX_B_C, "example.c").encode("ascii"))
+    assert run_spim(asm) == (APPENDIX_B_OUT, 0)
+
+
+@pytest.mark.gcc
+def test_example_c_on_gcc(tmp_path: Path) -> None:
+    # ... is the same as gcc -std=c99 -fwrapv -O0 -Iinclude example.c ref/nck_ref.c
+    assert run_gcc(EXAMPLE, tmp_path) == (APPENDIX_B_OUT, 0)
+
+
+@pytest.mark.spim
+def test_quick_start_as_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                capfd: pytest.CaptureFixture[str]) -> None:
+    # README 2: `c2mips examples/hello_nck.c -o hello_nck.s` then spim (or --run)
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    section = readme.split("## 2. Quick start", 1)[1].split("### CLI", 1)[0]
+    quick = section.split("\nผลลัพธ์ (", 1)[1].split("```\n", 1)[1].split("```", 1)[0]
+    assert quick == "C(10,3) = 120\n"
+    out = tmp_path / "hello_nck.s"
+    assert main([str(REPO / "examples" / "hello_nck.c"), "-o", str(out)]) == 0
+    assert run_spim(out) == (quick, 0)
+    assert SPIM is not None
+    monkeypatch.setenv("SPIM", SPIM)
+    capfd.readouterr()
+    assert main([str(REPO / "examples" / "hello_nck.c"), "-o", str(out), "--run"]) == 0
+    assert capfd.readouterr().out == quick

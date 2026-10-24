@@ -238,8 +238,25 @@ class _Codegen:
                 self.expr(e.right)
                 self.pop_t1()
                 self.binary(e)
-            case _:
-                raise AssertionError("calls are rejected by sema until M3")
+            case ast.Call():
+                self.call(e)
+
+    def call(self, e: ast.Call) -> None:
+        """README 6.3: push every argument, load $a0..$a(n-1) from the stack, pop, jal.
+
+        Nothing stays in a register across the jal, so the callee may clobber $t*/$a*.
+        """
+        assert e.resolved is not None, "sema resolves every call (user functions: M4)"
+        n = len(e.args)
+        for i, arg in enumerate(e.args):
+            self.expr(arg)
+            self.push(f"{e.name} arg {_render(arg)}" if _depth(arg) <= 2 else f"{e.name} arg{i}")
+        for i in reversed(range(n)):
+            self.emit("lw", f"$a{i}", f"{4 * (n - 1 - i)}($sp)")
+        if n:
+            self.emit("addiu", "$sp", "$sp", str(4 * n))
+        self.emit("jal", e.resolved.label)
+        self.emit("move", "$t0", "$v0")
 
     def binary(self, e: ast.Binary) -> None:
         note = _describe(e)

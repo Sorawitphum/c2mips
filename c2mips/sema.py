@@ -1,8 +1,8 @@
 """Semantic analysis (README 5.2, 5.3). Collects every error before stopping.
 
 Binds every Var/Assign to a Symbol and gives every declaration its own frame slot
-(README 6.2: slots are never reused across blocks). Calls (M3) and user-defined
-functions (M4) are still reported as E030 until those milestones land.
+(README 6.2: slots are never reused across blocks), and every call of a builtin (nCk)
+to its runtime routine. User-defined functions (M4) are still reported as E030.
 """
 
 from __future__ import annotations
@@ -44,6 +44,19 @@ class FuncInfo:
     symbols: list[Symbol] = field(default_factory=list)  # slot order
 
 
+@dataclass(frozen=True)
+class BuiltinFunc:
+    """A function implemented in runtime.s and declared in include/c2mips.h."""
+
+    name: str
+    arity: int
+    label: str
+    signature: str
+
+
+BUILTINS = {"nCk": BuiltinFunc("nCk", 2, "__rt_nCk", "int nCk(int n, int k)")}
+
+
 def analyze(prog: ast.Program) -> ast.Program:
     _Sema().program(prog)
     return prog
@@ -54,6 +67,7 @@ class _Sema:
         self.diags: list[Diagnostic] = []
         self.scopes: list[dict[str, Symbol]] = []
         self.slots: list[Symbol] = []
+        self.user_funcs: set[str] = set()
 
     def error(self, code: str, message: str, pos: Pos) -> None:
         self.diags.append(Diagnostic(code, message, pos))
@@ -65,7 +79,11 @@ class _Sema:
         mains = [f for f in prog.functions if f.name == "main" and f.body is not None]
         if not mains:
             self.error("E029", "no 'main' function", Pos(prog.pos.file, 1, 1))
+        self.user_funcs = {f.name for f in prog.functions if f.name not in BUILTINS}
         for f in prog.functions:
+            if f.name in BUILTINS:
+                self.builtin_decl(f, BUILTINS[f.name])
+                continue
             if f.name == "main" and f.params:
                 self.error("E029", "'main' must be declared as 'int main(void)' or "
                                    "'int main()'", f.pos)
@@ -77,6 +95,14 @@ class _Sema:
                 self.function(f, f.body)
         if self.diags:
             raise CompileError(self.diags)
+
+    def builtin_decl(self, f: ast.Function, b: BuiltinFunc) -> None:
+        """README 4.4 / Q16: a matching prototype (from c2mips.h) is fine; a body is not."""
+        if f.body is not None:
+            self.error("E024", f"'{b.name}' is a builtin and cannot be defined", f.pos)
+        elif len(f.params) != b.arity:
+            self.error("E024", f"conflicting prototype for builtin '{b.name}' "
+                               f"(expected '{b.signature}')", f.pos)
 
     # -- scopes ---------------------------------------------------------------------
 
@@ -90,12 +116,33 @@ class _Sema:
             scope[name] = sym
         return sym
 
-    def lookup(self, name: str, pos: Pos) -> Symbol | None:
+    def find(self, name: str) -> Symbol | None:
         for scope in reversed(self.scopes):
             if name in scope:
                 return scope[name]
-        self.error("E020", f"undeclared identifier '{name}'", pos)
         return None
+
+    def lookup(self, name: str, pos: Pos) -> Symbol | None:
+        sym = self.find(name)
+        if sym is None:
+            self.error("E020", f"undeclared identifier '{name}'", pos)
+        return sym
+
+    def call(self, e: ast.Call) -> None:
+        if self.find(e.name) is not None:  # a local variable hides the function, as in C
+            self.error("E022", f"called object '{e.name}' is not a function", e.pos)
+        elif (b := BUILTINS.get(e.name)) is not None:
+            if len(e.args) != b.arity:
+                self.error("E023", f"'{b.name}' expects {b.arity} arguments, got {len(e.args)}",
+                           e.pos)
+            else:
+                e.resolved = b
+        elif e.name in self.user_funcs:
+            self.unsupported("calls to user-defined functions", e.pos)  # M4
+        else:
+            self.error("E022", f"call to undeclared function '{e.name}'", e.pos)
+        for a in e.args:
+            self.expr(a)
 
     def function(self, f: ast.Function, body: ast.Block) -> None:
         self.slots = []
@@ -143,9 +190,7 @@ class _Sema:
                 e.resolved = self.lookup(e.name, e.pos)
                 self.expr(e.value)
             case ast.Call():
-                self.unsupported("function calls", e.pos)
-                for a in e.args:
-                    self.expr(a)
+                self.call(e)
             case ast.Unary():
                 self.expr(e.operand)
             case ast.Binary():

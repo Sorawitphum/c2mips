@@ -1,0 +1,3 @@
+e022_undeclared_function.c:2:12: error[E022]: call to undeclared function 'foo'
+    return foo(1);
+           ^

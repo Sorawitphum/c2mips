@@ -1,3 +1,4 @@
+// no-gcc-oracle: INT_MIN / -1 traps under gcc on x86; c2mips gives -x
 #include <stdio.h>
 
 int main(void) {

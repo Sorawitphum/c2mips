@@ -51,7 +51,8 @@
 
 ## 2. Quick start (เป้าหมายเมื่อจบ M3)
 
-> ส่วนนี้คือ "สัญญา" ของสิ่งที่ต้องใช้ได้จริงเมื่อจบ M3 — ยังรันไม่ได้ตอนนี้
+> ✅ รันได้จริงตั้งแต่ M3 — คำสั่งและผลลัพธ์ด้านล่างถูกตรวจทุกครั้งโดย `tests/test_example.py::test_quick_start_as_written`
+> (บน Windows: ใช้ spim ใน WSL ผ่าน `tools/spim.cmd` — ตั้ง `SPIM=tools\spim.cmd` ให้ `--run` หาเจอ)
 
 ```bash
 sudo apt install spim             # ✅ Ubuntu 24.04 มีแพ็กเกจ spim 8.0
@@ -926,10 +927,10 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 - [x] Decl/Assign/Var ใน codegen, frame prologue/epilogue — ภาคผนวก B (ตัด printf ที่เรียก nCk) ตรงทีละคำสั่ง
 
 **M3**
-- [ ] builtin table `{"nCk": BuiltinFunc(arity=2, label="__rt_nCk")}`
-- [ ] ตรวจ prototype ของ nCk (E024)
-- [ ] `run_gcc()` ใน conftest + differential test
-- [ ] อัปเดต Quick start ให้เป็นผลจริง
+- [x] builtin table `{"nCk": BuiltinFunc(arity=2, label="__rt_nCk")}` — E022 (ไม่ได้ประกาศ / ตัวแปรบัง), E023 (arity)
+- [x] ตรวจ prototype ของ nCk (E024)
+- [x] `run_gcc()` ใน conftest + differential test — ทุก golden ยกเว้น 4 ไฟล์ที่ผลขึ้นกับ UB ของ C (ติด `// no-gcc-oracle:`); `nck_ref.c` เทียบ `math.comb` แยก (S13)
+- [x] อัปเดต Quick start ให้เป็นผลจริง — ภาคผนวก B ทั้งไฟล์ตรงทีละคำสั่ง
 
 ---
 

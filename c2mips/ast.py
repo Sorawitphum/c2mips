@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from c2mips.tokens import Pos
 
 if TYPE_CHECKING:
-    from c2mips.sema import FuncInfo, Symbol
+    from c2mips.sema import BuiltinFunc, FuncInfo, Symbol
 
 
 @dataclass
@@ -52,7 +52,7 @@ class Call:
     name: str
     args: list[Expr]
     pos: Pos
-    resolved: object | None = None
+    resolved: BuiltinFunc | None = None  # filled by sema (user functions: M4)
 
 
 Expr = IntLit | Var | Assign | Unary | Binary | Call

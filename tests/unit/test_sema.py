@@ -96,3 +96,45 @@ def test_errors(src: str, codes: list[str]) -> None:
     with pytest.raises(CompileError) as e:
         main_of(src)
     assert [d.code for d in e.value.diagnostics] == codes
+
+
+def analyze_src(src: str) -> ast.Program:
+    return analyze(parse(lex(src, "t.c")))
+
+
+def calls(prog: ast.Program) -> list[ast.Call]:
+    return [n for f in prog.functions for n in all_nodes(f) if isinstance(n, ast.Call)]
+
+
+def test_nck_resolves_to_the_runtime_builtin() -> None:
+    (call,) = calls(analyze_src("int main(void) { return nCk(5, 2); }"))
+    assert call.resolved is not None
+    assert (call.resolved.name, call.resolved.arity, call.resolved.label) == (
+        "nCk", 2, "__rt_nCk")
+
+
+def test_matching_nck_prototype_is_accepted_with_any_param_names() -> None:
+    analyze_src("int nCk(int a, int b); int nCk(int n, int k); int main(void) { return 0; }")
+
+
+@pytest.mark.parametrize(("src", "codes"), [
+    ("int main(void) { return nCk(1); }", ["E023"]),
+    ("int main(void) { return nCk(1, 2, 3) + nCk(); }", ["E023", "E023"]),
+    ("int main(void) { return foo(1) + bar(); }", ["E022", "E022"]),
+    ("int main(void) { int nCk = 1; return nCk(1, 2); }", ["E022"]),  # shadowed, like C
+    ("int nCk(int n, int k) { return 0; } int main(void) { return 0; }", ["E024"]),
+    ("int nCk(int n); int main(void) { return 0; }", ["E024"]),
+    ("int nCk(int a, int b, int c); int main(void) { return 0; }", ["E024"]),
+    ("int f(int x); int main(void) { return f(1); }", ["E030"]),
+    ("int main(void) { return nCk(x, 1); }", ["E020"]),  # args are still checked
+])
+def test_call_errors(src: str, codes: list[str]) -> None:
+    with pytest.raises(CompileError) as e:
+        analyze_src(src)
+    assert [d.code for d in e.value.diagnostics] == codes
+
+
+def test_shadowed_nck_message() -> None:
+    with pytest.raises(CompileError) as e:
+        analyze_src("int main(void) { int nCk = 1; return nCk(1, 2); }")
+    assert e.value.diagnostics[0].message == "called object 'nCk' is not a function"

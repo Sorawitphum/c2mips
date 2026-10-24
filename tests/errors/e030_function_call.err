@@ -1,3 +1,0 @@
-e030_function_call.c:2:12: error[E030]: function calls are not supported yet
-    return nCk(5, 2);
-           ^

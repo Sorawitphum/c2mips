@@ -24,6 +24,7 @@ def _find_spim() -> str | None:
 
 
 SPIM = _find_spim()
+GCC = os.environ.get("GCC") or shutil.which("gcc")
 
 
 def run_spim(asm: Path, timeout: float = 10) -> tuple[str, int]:
@@ -44,6 +45,21 @@ def run_spim(asm: Path, timeout: float = 10) -> tuple[str, int]:
     return "\n".join(lines[start:]), p.returncode
 
 
+def run_gcc(src: Path, workdir: Path, timeout: float = 10) -> tuple[str, int]:
+    """Oracle (README 3.2 NFR-1): gcc -fwrapv + ref/nck_ref.c; (stdout, exit code & 0xFF)."""
+    if GCC is None:
+        pytest.skip("gcc not found")
+    exe = workdir / f"{src.stem}.exe"
+    build = subprocess.run([GCC, "-std=c99", "-fwrapv", "-O0", f"-I{REPO / 'include'}",
+                            str(src), str(REPO / "ref" / "nck_ref.c"), "-o", str(exe)],
+                           capture_output=True, text=True)
+    assert build.returncode == 0, build.stderr
+    p = subprocess.run([str(exe)], capture_output=True, timeout=timeout,
+                       stdin=subprocess.DEVNULL)
+    out = p.stdout.decode("utf-8", errors="replace").replace("\r\n", "\n")  # Windows CRT
+    return out, p.returncode & 0xFF  # Windows reports the full 32-bit status
+
+
 def read_expected(path: Path) -> tuple[str, int]:
     """programs/*.expected: first line `exit: <code>`, the rest is the exact stdout."""
     head, _, out = path.read_text(encoding="utf-8").partition("\n")
@@ -57,9 +73,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    if SPIM is not None:
-        return
-    skip = pytest.mark.skip(reason="spim not found")
-    for item in items:
-        if "spim" in item.keywords:
-            item.add_marker(skip)
+    for tool, found in (("spim", SPIM), ("gcc", GCC)):
+        if found is None:
+            skip = pytest.mark.skip(reason=f"{tool} not found")
+            for item in items:
+                if tool in item.keywords:
+                    item.add_marker(skip)
