@@ -191,6 +191,11 @@ Parser ใช้ recursive descent หนึ่งฟังก์ชันต่
 | `a / 0` | panic `runtime error: division by zero`, exit 70 | UB | ✅ `div` ดิบของ SPIM ไม่ trap และ LO ค้างค่าเดิม |
 | `INT_MIN / -1` | ได้ `INT_MIN` (คอมไพล์ `x / -1` เป็น `-x`) | UB | ✅ `div` ดิบของ SPIM ให้ LO ค้างค่าเดิม |
 | `-a` | wrap (`-INT_MIN == INT_MIN`) | UB ที่ INT_MIN | |
+| `a % b` (M4) | เศษมีเครื่องหมายตาม `a` (`-7 % 3 == -1`) — `div` แล้ว `mfhi` | เหมือนกัน (C99) | ✅ SPIM; ADR-008 |
+| `a % 0` (M4) | panic `runtime error: division by zero`, exit 70 | UB | guard เดียวกับ `/` (ADR-008) |
+| `INT_MIN % -1` (M4) | ได้ `0` (คอมไพล์ `x % -1` เป็น `0`) | UB | คู่กับ `x / -1 == -x` ให้ `(a/b)*b + a%b == a` ยังจริง (ADR-008) |
+| `< <= > >= == !=`, `!` (M4) | ได้ `0` หรือ `1` แบบ signed | เหมือนกัน | ใช้ `slt`/`sltu`/`sltiu`/`xori` ซึ่งเป็นคำสั่งจริงทั้ง SPIM และ MARS |
+| `a && b`, `a \|\| b` (M4) | short-circuit: ไม่ประเมิน `b` ถ้ารู้ผลแล้ว; ได้ `0` หรือ `1` | เหมือนกัน | ✅ `0 && nCk(34, 16)` ไม่ panic |
 | ลำดับการประเมิน | ซ้ายไปขวา; arguments ทั้งหมดก่อนเรียก | unspecified | test ห้ามพึ่งลำดับ |
 | ตัวแปรที่ยังไม่กำหนดค่า | ค่าขยะบน stack | indeterminate | ไม่ทดสอบ |
 | `main` จบโดยไม่มี `return` | คืน 0 | C99 §5.1.2.2.3 | |
@@ -574,6 +579,21 @@ main:   jal   f_main
 **Decision:** B · ไม่กระทบ semantics (§4) หรือ calling convention (§6.2) เพราะไบต์ในหน่วยความจำเหมือนเดิมทุกตัว
 **Consequences:** `tests/unit/test_emitter.py` ล็อกรูปแบบนี้; ✅ `printf_utf8` ให้ผลเหมือนกันบน SPIM, MARS และ gcc
 
+### ADR-008: ความหมายของ `%`
+
+**Status:** Accepted · **Date:** 2026-10-25 (M4)
+
+**Context:** FR-9 เพิ่ม `%` แต่ §4.3 ยังไม่นิยาม C99 ให้ `(a/b)*b + a%b == a` และเศษมีเครื่องหมายตามตัวตั้ง แต่ `a % 0` และ `INT_MIN % -1` เป็น UB · `div` ของ MIPS ให้เศษใน HI ตามเครื่องหมายตัวตั้งอยู่แล้ว และไม่ trap ตอนหารศูนย์ (S5) — เหมือนปัญหาของ `/` ใน ADR-006
+
+| Option | ข้อดี | ข้อเสีย |
+|---|---|---|
+| A: ใช้ `div` + `mfhi` ดิบ | สั้นสุด | หารศูนย์ได้เลขขยะเงียบ ๆ (เหตุผลเดียวกับ ADR-006 A) |
+| **B: guard แบบเดียวกับ `/`** | `x % 0` → panic ข้อความเดียวกับ `/0`, exit 70; `x % -1` → `0` | +5 คำสั่งต่อ `%` ที่ตัวหารไม่คงที่ |
+| C: เรียก routine ใหม่ใน runtime | โค้ดสั้นที่จุดเรียก | ต้องแก้ `runtime.s` ซึ่งห้ามเขียนใหม่ |
+
+**Decision:** B · ใช้ `__rt_div0` เดิม (ไม่แตะ `runtime.s`) · `x % -1 == 0` คู่กับ `x / -1 == -x` (ADR-006) ทำให้ `(a/b)*b + a%b == a` จริงทุกค่า รวม `INT_MIN`
+**Consequences:** golden `mod_by_zero` / `mod_int_min_minus_one` ติด `// no-gcc-oracle:` เพราะ gcc เป็น UB (x86 trap); `-O1` (M5) ตัด guard ได้เมื่อตัวหารเป็นค่าคงที่เหมือน `/`
+
 ---
 
 ## 8. Grill-me: ถามจี้ตัวเอง-ตอบเอง
@@ -931,6 +951,14 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 - [x] ตรวจ prototype ของ nCk (E024)
 - [x] `run_gcc()` ใน conftest + differential test — ทุก golden ยกเว้น 4 ไฟล์ที่ผลขึ้นกับ UB ของ C (ติด `// no-gcc-oracle:`); `nck_ref.c` เทียบ `math.comb` แยก (S13)
 - [x] อัปเดต Quick start ให้เป็นผลจริง — ภาคผนวก B ทั้งไฟล์ตรงทีละคำสั่ง
+
+**M4** (§11 ไม่มี checklist เดิม — รายการนี้สรุปสิ่งที่ส่งมอบ)
+- [x] parser: `\|\| && == != < <= > >=` และ `%` `!` ตามลำดับชั้นของ §4.2 (หนึ่ง method ต่อหนึ่งกฎ); `if/else` (else จับ `if` ที่ใกล้สุด), `while`, `for` (init เป็น decl ได้); declaration เป็นตัว body ของ if/while/for ไม่ได้ (เหมือน C) → `E010`
+- [x] codegen: comparison เป็น 0/1 ด้วยคำสั่งจริง, `&& \|\|` short-circuit, `%` ตาม ADR-008; label `L<n>_else/endif/while/wend/for/fend`
+- [x] ฟังก์ชันของผู้ใช้ ≤ 4 params (`E028`), recursion, prototype; param spill เข้า slot ทันทีหลัง prologue (§6.2); ต้องประกาศก่อนเรียก (C99) → `E022`; นิยามซ้ำ / prototype ไม่ตรง → `E021`; `E023` สำหรับ arity
+- [x] `W001` เมื่อท้ายฟังก์ชัน (ที่ไม่ใช่ `main`) ไปถึงได้ — ตรวจตาม flow (if/else ทั้งสองทาง, loop ที่เงื่อนไขเป็นค่าคงที่ไม่ใช่ 0 ไม่มีวันจบเพราะไม่มี `break`); คอมไพล์ผ่าน exit 0 และฟังก์ชันคืน 0
+- [x] `examples/fact.c`, `fib.c`, `gcd.c` และ `nck_user.c` (n!/(k!(n−k)!) ที่ผู้ใช้เขียน = builtin ทุก n ≤ 12) ผลตรงกับ Python และ gcc
+- [x] ไม่มี placeholder `E030 … not supported yet` เหลือ — `E030` ใช้เฉพาะสิ่งที่อยู่นอก MiniC (type อื่น, pointer, array, `++`, `+=`, `break`, …)
 
 ---
 

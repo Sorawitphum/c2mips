@@ -43,9 +43,44 @@ def error(src: str) -> tuple[str, str]:
     ("a = b = 1 + x", "(= a (= b (+ 1 x)))"),       # assignment is right-assoc
     ("f(1, g(2), h())", "(call f 1 (call g 2) (call h))"),
     ("nCk(n, k) * 2", "(* (call nCk n k) 2)"),
+    # M4: C precedence || < && < == != < relational < additive < * / % < unary
+    ("a || b && c", "(|| a (&& b c))"),
+    ("a && b || c && d", "(|| (&& a b) (&& c d))"),
+    ("a == b < c", "(== a (< b c))"),
+    ("a != b == c", "(== (!= a b) c)"),
+    ("1 + 2 < 3 * 4", "(< (+ 1 2) (* 3 4))"),
+    ("a <= b >= c > d", "(> (>= (<= a b) c) d)"),
+    ("a % b * c", "(* (% a b) c)"),
+    ("-a % b", "(% (neg a) b)"),
+    ("!a == b", "(== (! a) b)"),
+    ("!!a", "(! (! a))"),
+    ("x = a || b", "(= x (|| a b))"),
 ])
 def test_expressions(src: str, tree: str) -> None:
     assert expr(src) == tree
+
+
+def body(src: str) -> str:
+    s = prog(f"int main(void) {{ {src} }}")
+    prefix, suffix = "(program (function main () (block ", ")))"
+    assert s.startswith(prefix) and s.endswith(suffix), s
+    return s[len(prefix):-len(suffix)]
+
+
+@pytest.mark.parametrize(("src", "tree"), [
+    ("if (a) x;", "(if a (expr x))"),
+    ("if (a) x; else y;", "(if a (expr x) (expr y))"),
+    ("if (a) if (b) x; else y;", "(if a (if b (expr x) (expr y)))"),  # dangling else
+    ("if (a) { } else if (b) ; else { y; }",
+     "(if a (block) (if b (empty) (block (expr y))))"),
+    ("while (i < 3) i = i + 1;", "(while (< i 3) (expr (= i (+ i 1))))"),
+    ("for (int i = 0; i < 3; i = i + 1) ;",
+     "(for (decl (i 0)) (< i 3) (= i (+ i 1)) (empty))"),
+    ("for (i = 0; ; ) { }", "(for (= i 0) _ _ (block))"),
+    ("for (;;) ;", "(for _ _ _ (empty))"),
+])
+def test_control_flow(src: str, tree: str) -> None:
+    assert body(src) == tree
 
 
 def test_statements() -> None:
@@ -95,14 +130,18 @@ def test_empty_program() -> None:
     ("void main(void) { }", "E030", "functions must return 'int'"),
     ("int main(void) { int *p; }", "E030", "pointers are not supported"),
     ("int main(void) { int a[3]; }", "E030", "arrays are not supported"),
-    ("int main(void) { while (1) ; }", "E030", "'while' loops are not supported yet"),
-    ("int main(void) { for (;;) ; }", "E030", "'for' loops are not supported yet"),
-    ("int main(void) { return 5 % 2; }", "E030", "operator '%' is not supported yet"),
-    ("int main(void) { return !1; }", "E030", "operator '!' is not supported yet"),
-    ("int main(void) { return 1 == 1; }", "E030", "operator '==' is not supported yet"),
-    ("int main(void) { return 1 && 1; }", "E030", "operator '&&' is not supported yet"),
-    ("int main(void) { x++; }", "E030", "operator '++' is not supported yet"),
-    ("int main(void) { x += 1; }", "E030", "operator '+=' is not supported yet"),
+    ("int main(void) { x++; }", "E030", "operator '++' is not supported"),
+    ("int main(void) { --x; }", "E030", "operator '--' is not supported"),
+    ("int main(void) { x += 1; }", "E030", "operator '+=' is not supported"),
+    ("int main(void) { while (1) break; }", "E030", "'break' is not supported"),
+    ("int main(void) { do ; while (1); }", "E030", "'do' is not supported"),
+    ("int main(void) { switch (1) { } }", "E030", "'switch' is not supported"),
+    ("int main(void) { if (1) int x; }", "E010", "expected statement but found 'int'"),
+    ("int main(void) { while (1) int x; }", "E010", "expected statement but found 'int'"),
+    ("int main(void) { for (;;) int x; }", "E010", "expected statement but found 'int'"),
+    ("int main(void) { if 1 ; }", "E010", "expected '(' but found '1'"),
+    ("int main(void) { for (int i = 0, i < 3; ) ; }", "E010", "expected ';' but found '<'"),
+    ("int main(void) { else ; }", "E010", "expected expression but found 'else'"),
     ("int main(void) { return &x; }", "E030", "pointers are not supported"),
 ])
 def test_parse_errors(src: str, code: str, message: str) -> None:

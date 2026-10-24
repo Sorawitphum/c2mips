@@ -1,8 +1,8 @@
 """Semantic analysis (README 5.2, 5.3). Collects every error before stopping.
 
 Binds every Var/Assign to a Symbol and gives every declaration its own frame slot
-(README 6.2: slots are never reused across blocks), and every call of a builtin (nCk)
-to its runtime routine. User-defined functions (M4) are still reported as E030.
+(README 6.2: slots are never reused across blocks; parameters take the first slots), and
+every call to the runtime routine (nCk) or user function it names.
 """
 
 from __future__ import annotations
@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from c2mips import ast
 from c2mips.diagnostics import CompileError, Diagnostic
 from c2mips.tokens import Pos
+
+MAX_PARAMS = 4  # $a0-$a3; stack parameters are not implemented (README 6.2)
 
 
 class SymKind(enum.Enum):
@@ -35,13 +37,14 @@ class Symbol:
         return -4 * (self.slot + 1)
 
 
-@dataclass
+@dataclass(eq=False)
 class FuncInfo:
     name: str
     n_params: int
     n_slots: int
     label: str
     symbols: list[Symbol] = field(default_factory=list)  # slot order
+    falls_through: bool = False  # the end of the body is reachable: returns 0 (W001)
 
 
 @dataclass(frozen=True)
@@ -58,8 +61,26 @@ BUILTINS = {"nCk": BuiltinFunc("nCk", 2, "__rt_nCk", "int nCk(int n, int k)")}
 
 
 def analyze(prog: ast.Program) -> ast.Program:
+    """Raises CompileError if there is any error; warnings end up in prog.warnings."""
     _Sema().program(prog)
     return prog
+
+
+def always_returns(s: ast.Stmt) -> bool:
+    """True if control can never run off the end of s. MiniC has no `break`, so a loop
+    whose condition is a nonzero constant (or absent, in `for`) never completes."""
+    match s:
+        case ast.Return():
+            return True
+        case ast.Block():
+            return any(always_returns(x) for x in s.stmts)
+        case ast.If():
+            return s.else_ is not None and always_returns(s.then) and always_returns(s.else_)
+        case ast.While():
+            return isinstance(s.cond, ast.IntLit) and s.cond.value != 0
+        case ast.For():
+            return s.cond is None or (isinstance(s.cond, ast.IntLit) and s.cond.value != 0)
+    return False
 
 
 class _Sema:
@@ -67,19 +88,31 @@ class _Sema:
         self.diags: list[Diagnostic] = []
         self.scopes: list[dict[str, Symbol]] = []
         self.slots: list[Symbol] = []
-        self.user_funcs: set[str] = set()
+        self.defined: dict[str, FuncInfo] = {}  # user functions with a body
+        self.visible: set[str] = set()  # user functions declared so far (C needs it first)
 
     def error(self, code: str, message: str, pos: Pos) -> None:
         self.diags.append(Diagnostic(code, message, pos))
 
-    def unsupported(self, what: str, pos: Pos) -> None:
-        self.error("E030", f"{what} are not supported yet", pos)
-
     def program(self, prog: ast.Program) -> None:
-        mains = [f for f in prog.functions if f.name == "main" and f.body is not None]
-        if not mains:
+        if not any(f.name == "main" and f.body is not None for f in prog.functions):
             self.error("E029", "no 'main' function", Pos(prog.pos.file, 1, 1))
-        self.user_funcs = {f.name for f in prog.functions if f.name not in BUILTINS}
+        first_bodies = self.declarations(prog)
+        for f in prog.functions:
+            if f.name in BUILTINS:
+                continue
+            self.visible.add(f.name)  # from here on, including its own body (recursion)
+            if f.body is not None and id(f) in first_bodies:
+                self.function(f, f.body)
+        if any(not d.code.startswith("W") for d in self.diags):
+            raise CompileError(self.diags)
+        prog.warnings = self.diags
+
+    def declarations(self, prog: ast.Program) -> set[int]:
+        """Check every function header; make a FuncInfo for every definition up front so
+        calls can resolve to it before its body is analyzed."""
+        params: dict[str, int] = {}
+        first_bodies: set[int] = set()  # id() of the first definition of each name
         for f in prog.functions:
             if f.name in BUILTINS:
                 self.builtin_decl(f, BUILTINS[f.name])
@@ -87,14 +120,23 @@ class _Sema:
             if f.name == "main" and f.params:
                 self.error("E029", "'main' must be declared as 'int main(void)' or "
                                    "'int main()'", f.pos)
+            if len(f.params) > MAX_PARAMS:
+                self.error("E028", f"too many parameters (at most {MAX_PARAMS})",
+                           f.param_pos[MAX_PARAMS])
+            if f.name not in params:
+                params[f.name] = len(f.params)
+            elif params[f.name] != len(f.params):
+                self.error("E021", f"conflicting declaration of '{f.name}' "
+                                   f"({len(f.params)} parameters, previously "
+                                   f"{params[f.name]})", f.pos)
             if f.body is None:
-                continue  # prototypes are harmless (c2mips.h declares nCk)
-            if f.name != "main":
-                self.unsupported("user-defined functions", f.pos)
-            else:
-                self.function(f, f.body)
-        if self.diags:
-            raise CompileError(self.diags)
+                continue
+            if f.name in self.defined:
+                self.error("E021", f"redefinition of '{f.name}'", f.pos)
+                continue
+            self.defined[f.name] = FuncInfo(f.name, len(f.params), 0, f"f_{f.name}")
+            first_bodies.add(id(f))
+        return first_bodies
 
     def builtin_decl(self, f: ast.Function, b: BuiltinFunc) -> None:
         """README 4.4 / Q16: a matching prototype (from c2mips.h) is fine; a body is not."""
@@ -129,18 +171,24 @@ class _Sema:
         return sym
 
     def call(self, e: ast.Call) -> None:
+        arity: int | None = None
+        target: BuiltinFunc | FuncInfo | None = None
         if self.find(e.name) is not None:  # a local variable hides the function, as in C
             self.error("E022", f"called object '{e.name}' is not a function", e.pos)
         elif (b := BUILTINS.get(e.name)) is not None:
-            if len(e.args) != b.arity:
-                self.error("E023", f"'{b.name}' expects {b.arity} arguments, got {len(e.args)}",
+            arity, target = b.arity, b
+        elif e.name not in self.visible:
+            self.error("E022", f"call to undeclared function '{e.name}'", e.pos)
+        elif (info := self.defined.get(e.name)) is None:
+            self.error("E022", f"'{e.name}' is declared but never defined", e.pos)
+        else:
+            arity, target = info.n_params, info
+        if arity is not None:
+            if len(e.args) != arity:
+                self.error("E023", f"'{e.name}' expects {arity} arguments, got {len(e.args)}",
                            e.pos)
             else:
-                e.resolved = b
-        elif e.name in self.user_funcs:
-            self.unsupported("calls to user-defined functions", e.pos)  # M4
-        else:
-            self.error("E022", f"call to undeclared function '{e.name}'", e.pos)
+                e.resolved = target
         for a in e.args:
             self.expr(a)
 
@@ -153,7 +201,14 @@ class _Sema:
         for s in body.stmts:
             self.stmt(s)
         self.scopes = []
-        f.info = FuncInfo(f.name, len(f.params), len(self.slots), f"f_{f.name}", self.slots)
+        info = self.defined[f.name]
+        info.n_slots, info.symbols = len(self.slots), self.slots
+        info.falls_through = not always_returns(body)
+        f.info = info
+        if info.falls_through and f.name != "main":  # main returns 0 (C99 5.1.2.2.3)
+            close = Pos(body.end.file, body.end.line, body.end.col - 1)
+            self.error("W001", f"control may reach the end of '{f.name}' without a return; "
+                               "it returns 0", close)
 
     # -- statements / expressions ---------------------------------------------------
 
@@ -177,6 +232,25 @@ class _Sema:
             case ast.Printf():
                 for a in s.args:
                     self.expr(a)
+            case ast.If():
+                self.expr(s.cond)
+                self.stmt(s.then)
+                if s.else_ is not None:
+                    self.stmt(s.else_)
+            case ast.While():
+                self.expr(s.cond)
+                self.stmt(s.body)
+            case ast.For():
+                self.scopes.append({})  # C99 6.8.5p5: `for (int i ...)` has its own scope
+                if isinstance(s.init, ast.Decl):
+                    self.stmt(s.init)
+                elif s.init is not None:
+                    self.expr(s.init)
+                for e in (s.cond, s.step):
+                    if e is not None:
+                        self.expr(e)
+                self.stmt(s.body)
+                self.scopes.pop()
             case ast.Empty():
                 pass
 

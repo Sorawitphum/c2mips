@@ -1,3 +1,0 @@
-e030_call_user_function.c:4:12: error[E030]: calls to user-defined functions are not supported yet
-    return helper();
-           ^

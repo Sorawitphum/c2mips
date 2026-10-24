@@ -98,3 +98,13 @@ def test_run_forwards_stdout_and_exit_code(cfile: Path, monkeypatch: pytest.Monk
     monkeypatch.setenv("SPIM", SPIM)
     assert main([str(cfile), "--run"]) == 3
     assert capfd.readouterr().out == "hi 42\n"
+
+
+def test_warning_still_compiles(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    p = tmp_path / "w.c"
+    p.write_text("int f(int x) { if (x) return 1; }\nint main(void) { return f(0); }\n",
+                 encoding="utf-8")
+    assert main([str(p)]) == 0
+    err = capsys.readouterr().err
+    assert ": warning[W001]: control may reach the end of 'f'" in err
+    assert p.with_suffix(".s").exists()

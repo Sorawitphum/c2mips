@@ -1,0 +1,3 @@
+w001_missing_return.c:4:1: warning[W001]: control may reach the end of 'maybe' without a return; it returns 0
+}
+^

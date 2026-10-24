@@ -1,10 +1,12 @@
 """Recursive-descent parser, one method per rule of README 4.2. Stops at the first error.
 
-The M4 rules (if/while/for, comparisons, && || !, %) are not parsed: they are reported
-as E030 "not supported yet" so the message is not a confusing syntax error.
+C constructs outside MiniC (other types, pointers, ++, +=, break, ...) are reported as
+E030 "not supported" so the message is not a confusing syntax error.
 """
 
 from __future__ import annotations
+
+from collections.abc import Callable
 
 from c2mips import ast
 from c2mips.diagnostics import CompileError, error
@@ -16,10 +18,11 @@ K = TokKind
 C_TYPES = {"char", "short", "long", "float", "double", "signed", "unsigned", "struct",
            "union", "enum", "const", "volatile", "static", "extern", "register", "auto",
            "typedef", "_Bool"}
-UNSUPPORTED_OPS = {K.PERCENT, K.EQ, K.NE, K.LT, K.LE, K.GT, K.GE, K.ANDAND, K.OROR, K.NOT,
-                   K.INC, K.DEC, K.PLUS_ASSIGN, K.MINUS_ASSIGN, K.STAR_ASSIGN, K.SLASH_ASSIGN,
+UNSUPPORTED_OPS = {K.INC, K.DEC, K.PLUS_ASSIGN, K.MINUS_ASSIGN, K.STAR_ASSIGN, K.SLASH_ASSIGN,
                    K.PERCENT_ASSIGN}
-UNSUPPORTED_STMTS = {K.IF: "'if' statements", K.WHILE: "'while' loops", K.FOR: "'for' loops"}
+# C keywords that MiniC lexes as identifiers but has no statement for (no break in loops).
+C_KEYWORDS = {"break", "continue", "do", "switch", "case", "default", "goto", "sizeof"}
+
 
 
 def parse(tokens: list[Token]) -> ast.Program:
@@ -59,7 +62,9 @@ class _Parser:
         if tok.kind is K.EOF:
             return error("E011", f"unexpected end of file (expected {what})", tok.pos)
         if tok.kind in UNSUPPORTED_OPS:
-            return error("E030", f"operator '{tok.text}' is not supported yet", tok.pos)
+            return error("E030", f"operator '{tok.text}' is not supported", tok.pos)
+        if tok.kind is K.IDENT and tok.text in C_KEYWORDS:
+            return error("E030", f"'{tok.text}' is not supported", tok.pos)
         if tok.kind is K.AMP:
             return error("E030", "pointers are not supported", tok.pos)
         if tok.kind is K.LBRACKET:
@@ -135,8 +140,14 @@ class _Parser:
         tok = self.tok
         if tok.kind is K.INT or (tok.kind is K.IDENT and tok.text in C_TYPES):
             return self.decl()
-        if tok.kind in UNSUPPORTED_STMTS:
-            raise error("E030", f"{UNSUPPORTED_STMTS[tok.kind]} are not supported yet", tok.pos)
+        if tok.kind is K.IF:
+            return self.if_stmt()
+        if tok.kind is K.WHILE:
+            return self.while_stmt()
+        if tok.kind is K.FOR:
+            return self.for_stmt()
+        if tok.kind is K.IDENT and tok.text in C_KEYWORDS:
+            raise self.unexpected("statement")
         if tok.kind is K.RETURN:
             self.advance()
             e = self.expr()
@@ -150,6 +161,54 @@ class _Parser:
             return ast.Empty(tok.pos, _end(tok))
         e = self.expr()
         return ast.ExprStmt(e, tok.pos, _end(self.expect(K.SEMI)))
+
+    def sub_stmt(self) -> ast.Stmt:
+        """Body of if/while/for: a statement, and in C a declaration is not one."""
+        tok = self.tok
+        if tok.kind is K.INT or (tok.kind is K.IDENT and tok.text in C_TYPES):
+            raise error("E010", f"expected statement but found {tok.describe()}", tok.pos)
+        return self.stmt()
+
+    def last_end(self) -> Pos:
+        return _end(self.toks[self.i - 1])
+
+    def paren_expr(self) -> tuple[ast.Expr, Pos]:
+        self.expect(K.LPAREN)
+        cond = self.expr()
+        return cond, _end(self.expect(K.RPAREN))
+
+    def if_stmt(self) -> ast.If:
+        start = self.advance()
+        cond, head_end = self.paren_expr()
+        then = self.sub_stmt()
+        else_ = None
+        if self.at(K.ELSE):  # the nearest `if` takes the `else` (dangling else)
+            self.advance()
+            else_ = self.sub_stmt()
+        return ast.If(cond, then, else_, start.pos, self.last_end(), head_end)
+
+    def while_stmt(self) -> ast.While:
+        start = self.advance()
+        cond, head_end = self.paren_expr()
+        body = self.sub_stmt()
+        return ast.While(cond, body, start.pos, self.last_end(), head_end)
+
+    def for_stmt(self) -> ast.For:
+        start = self.advance()
+        self.expect(K.LPAREN)
+        init: ast.Decl | ast.Expr | None = None
+        if self.at(K.INT) or (self.at(K.IDENT) and self.tok.text in C_TYPES):
+            init = self.decl()  # consumes the ";"
+        else:
+            if not self.at(K.SEMI):
+                init = self.expr()
+            self.expect(K.SEMI)
+        cond = None if self.at(K.SEMI) else self.expr()
+        self.expect(K.SEMI)
+        step = None if self.at(K.RPAREN) else self.expr()
+        head_end = _end(self.expect(K.RPAREN))
+        body = self.sub_stmt()
+        return ast.For(init, cond, step, body, start.pos, self.last_end(), head_end)
 
     def decl(self) -> ast.Decl:
         start = self.tok.pos
@@ -198,24 +257,36 @@ class _Parser:
             name = self.advance()
             self.advance()
             return ast.Assign(str(name.value), self.assign(), name.pos)
-        return self.additive()  # logic_or .. relational are M4
+        return self.logic_or()
+
+    def left_assoc(self, operand: Callable[[], ast.Expr], ops: tuple[TokKind, ...]) -> ast.Expr:
+        """operand { op operand }, folded to the left."""
+        left = operand()
+        while self.tok.kind in ops:
+            op = self.advance()
+            left = ast.Binary(op.text, left, operand(), op.pos)
+        return left
+
+    def logic_or(self) -> ast.Expr:
+        return self.left_assoc(self.logic_and, (K.OROR,))
+
+    def logic_and(self) -> ast.Expr:
+        return self.left_assoc(self.equality, (K.ANDAND,))
+
+    def equality(self) -> ast.Expr:
+        return self.left_assoc(self.relational, (K.EQ, K.NE))
+
+    def relational(self) -> ast.Expr:
+        return self.left_assoc(self.additive, (K.LT, K.LE, K.GT, K.GE))
 
     def additive(self) -> ast.Expr:
-        left = self.term()
-        while self.tok.kind in (K.PLUS, K.MINUS):
-            op = self.advance()
-            left = ast.Binary(op.text, left, self.term(), op.pos)
-        return left
+        return self.left_assoc(self.term, (K.PLUS, K.MINUS))
 
     def term(self) -> ast.Expr:
-        left = self.unary()
-        while self.tok.kind in (K.STAR, K.SLASH):  # "%" is M4
-            op = self.advance()
-            left = ast.Binary(op.text, left, self.unary(), op.pos)
-        return left
+        return self.left_assoc(self.unary, (K.STAR, K.SLASH, K.PERCENT))
 
     def unary(self) -> ast.Expr:
-        if self.tok.kind in (K.MINUS, K.PLUS):
+        if self.tok.kind in (K.MINUS, K.PLUS, K.NOT):
             op = self.advance()
             return ast.Unary(op.text, self.unary(), op.pos)
         return self.primary()
@@ -229,6 +300,8 @@ class _Parser:
         if tok.kind is K.IDENT:
             if tok.text == "printf":
                 raise error("E025", "'printf' can only be used as a statement", tok.pos)
+            if tok.text in C_KEYWORDS:
+                raise self.unexpected("expression")
             self.advance()
             if self.tok.kind is K.LPAREN:
                 return ast.Call(tok.text, self.call_args(), tok.pos)

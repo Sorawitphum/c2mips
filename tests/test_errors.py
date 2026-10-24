@@ -17,11 +17,13 @@ def test_error(src: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.chdir(ERR_DIR)  # diagnostics print the path as given on the command line
     out = tmp_path / "out.s"
-    assert main([src.name, "-o", str(out)]) == 1
+    want = src.with_suffix(".err").read_text(encoding="utf-8")
+    has_error = ": error[" in want  # warnings alone (W001) still compile
+    assert main([src.name, "-o", str(out)]) == (1 if has_error else 0)
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == src.with_suffix(".err").read_text(encoding="utf-8")
-    assert not out.exists()
+    assert captured.err == want
+    assert out.exists() != has_error
 
 
 def test_every_lexer_parser_code_has_an_error_test() -> None:
@@ -31,6 +33,7 @@ def test_every_lexer_parser_code_has_an_error_test() -> None:
             "E031"} <= codes
 
 
-def test_m2_sema_codes_have_error_tests() -> None:
+def test_sema_codes_have_error_tests() -> None:
+    # README 9.6: every diagnostic code has a test (E040 is generated in test_emitter.py).
     codes = {p.stem.split("_")[0].upper() for p in ERRORS}
-    assert {"E020", "E021"} <= codes
+    assert {"E020", "E021", "E022", "E023", "E024", "E028", "E029", "W001"} <= codes

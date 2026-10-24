@@ -27,4 +27,6 @@ def test_only_documented_ub_cases_are_excluded() -> None:
     # nCk overflow is not one of them: nck_ref.c panics exactly like runtime.s (Q15).
     excluded = {p.stem for p in PROGRAMS} - {p.stem for p in DIFFERENTIAL}
     assert excluded == {"a11_div_by_zero", "a12_div_by_runtime_zero",
-                        "expr_div_by_computed_zero", "var_int_min_div_minus_one"}
+                        "expr_div_by_computed_zero", "var_int_min_div_minus_one",
+                        "mod_by_zero", "mod_int_min_minus_one",  # ADR-008
+                        "func_fallthrough_returns_zero"}  # README 4.3: UB if the value is used

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from c2mips.tokens import Pos
 
 if TYPE_CHECKING:
+    from c2mips.diagnostics import Diagnostic
     from c2mips.sema import BuiltinFunc, FuncInfo, Symbol
 
 
@@ -34,14 +35,14 @@ class Assign:
 
 @dataclass
 class Unary:
-    op: str  # "-" | "+"
+    op: str  # "-" | "+" | "!"
     operand: Expr
     pos: Pos
 
 
 @dataclass
 class Binary:
-    op: str  # "+" | "-" | "*" | "/"
+    op: str  # + - * / %  < <= > >= == !=  && ||
     left: Expr
     right: Expr
     pos: Pos
@@ -52,7 +53,7 @@ class Call:
     name: str
     args: list[Expr]
     pos: Pos
-    resolved: BuiltinFunc | None = None  # filled by sema (user functions: M4)
+    resolved: BuiltinFunc | FuncInfo | None = None  # filled by sema
 
 
 Expr = IntLit | Var | Assign | Unary | Binary | Call
@@ -107,7 +108,37 @@ class Printf:
     end: Pos
 
 
-Stmt = Block | Decl | Return | ExprStmt | Empty | Printf
+@dataclass
+class If:
+    cond: Expr
+    then: Stmt
+    else_: Stmt | None
+    pos: Pos
+    end: Pos
+    head_end: Pos  # just past the ")" of `if (cond)`
+
+
+@dataclass
+class While:
+    cond: Expr
+    body: Stmt
+    pos: Pos
+    end: Pos
+    head_end: Pos
+
+
+@dataclass
+class For:
+    init: Decl | Expr | None
+    cond: Expr | None
+    step: Expr | None
+    body: Stmt
+    pos: Pos
+    end: Pos
+    head_end: Pos
+
+
+Stmt = Block | Decl | Return | ExprStmt | Empty | Printf | If | While | For
 
 
 @dataclass
@@ -124,12 +155,16 @@ class Function:
 class Program:
     functions: list[Function]
     pos: Pos
+    warnings: list[Diagnostic] = field(default_factory=list)  # filled by sema
 
 
 def quote(s: str) -> str:
     """C-style string literal for s (used by --emit=ast and asm comments)."""
     out = s.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\t", "\\t")
     return f'"{out}"'
+
+
+_UNARY_NAMES = {"-": "neg", "+": "pos", "!": "!"}
 
 
 def sexpr(node: Program | Function | Stmt | Expr) -> str:
@@ -152,6 +187,13 @@ def sexpr(node: Program | Function | Stmt | Expr) -> str:
             return f"(expr {sexpr(e)})"
         case Empty():
             return "(empty)"
+        case If(cond=c, then=t, else_=e):
+            return "(" + " ".join(["if", sexpr(c), sexpr(t)] + ([sexpr(e)] if e else [])) + ")"
+        case While(cond=c, body=b):
+            return f"(while {sexpr(c)} {sexpr(b)})"
+        case For(init=i, cond=c, step=st, body=b):
+            parts = ["_" if x is None else sexpr(x) for x in (i, c, st)]
+            return "(" + " ".join(["for", *parts, sexpr(b)]) + ")"
         case Printf(segments=segs, args=args):
             fmt = " ".join("%d" if isinstance(s, FmtD) else quote(s) for s in segs)
             return "(" + " ".join(["printf", f"({fmt})", *map(sexpr, args)]) + ")"
@@ -162,7 +204,7 @@ def sexpr(node: Program | Function | Stmt | Expr) -> str:
         case Assign(name=name, value=v):
             return f"(= {name} {sexpr(v)})"
         case Unary(op=op, operand=e):
-            return f"({'neg' if op == '-' else 'pos'} {sexpr(e)})"
+            return f"({_UNARY_NAMES[op]} {sexpr(e)})"
         case Binary(op=op, left=a, right=b):
             return f"({op} {sexpr(a)} {sexpr(b)})"
         case Call(name=name, args=args):

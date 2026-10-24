@@ -47,7 +47,28 @@ class Blank:
 
 AsmLine = Insn | Label | Directive | Comment | Blank
 
-_PREC = {"+": 1, "-": 1, "*": 2, "/": 2}
+# C precedence of the binary operators, for _render (higher binds tighter).
+_PREC = {"||": 1, "&&": 2, "==": 3, "!=": 3, "<": 4, "<=": 4, ">": 4, ">=": 4,
+         "+": 5, "-": 5, "*": 6, "/": 6, "%": 6}
+
+# Comparisons of $t1 (left) with $t0 (right) as 0/1, using only real MIPS instructions.
+_COMPARE: dict[str, list[tuple[str, ...]]] = {
+    "<": [("slt", "$t0", "$t1", "$t0")],
+    ">": [("slt", "$t0", "$t0", "$t1")],
+    "<=": [("slt", "$t0", "$t0", "$t1"), ("xori", "$t0", "$t0", "1")],
+    ">=": [("slt", "$t0", "$t1", "$t0"), ("xori", "$t0", "$t0", "1")],
+    "==": [("subu", "$t0", "$t1", "$t0"), ("sltiu", "$t0", "$t0", "1")],
+    "!=": [("subu", "$t0", "$t1", "$t0"), ("sltu", "$t0", "$zero", "$t0")],
+}
+
+
+def _prec(e: ast.Expr) -> int:
+    match e:
+        case ast.Binary():
+            return _PREC[e.op]
+        case ast.Assign():
+            return 0
+    return 99
 
 
 def codegen(prog: ast.Program, source: str) -> list[AsmLine]:
@@ -72,14 +93,14 @@ def _render(e: ast.Expr) -> str:
             return e.name
         case ast.Unary():
             inner = _render(e.operand)
-            if isinstance(e.operand, ast.Binary):
+            if isinstance(e.operand, ast.Binary | ast.Assign):
                 inner = f"({inner})"
             return f"{e.op} {inner}" if inner.startswith(("-", "+")) else f"{e.op}{inner}"
         case ast.Binary():
             left, right = _render(e.left), _render(e.right)
-            if isinstance(e.left, ast.Binary) and _PREC[e.left.op] < _PREC[e.op]:
+            if _prec(e.left) < _PREC[e.op]:
                 left = f"({left})"
-            if isinstance(e.right, ast.Binary) and _PREC[e.right.op] <= _PREC[e.op]:
+            if _prec(e.right) <= _PREC[e.op]:
                 right = f"({right})"
             return f"{left} {e.op} {right}"
         case ast.Assign():
@@ -155,14 +176,20 @@ class _Codegen:
         self.emit("sw", "$ra", "4($sp)")
         self.emit("sw", "$fp", "0($sp)")
         self.emit("move", "$fp", "$sp")
-        assert f.info is not None, "sema fills FuncInfo"
-        if f.info.n_slots:
-            slots = "  ".join(f"{s.name}@{s.offset}" for s in f.info.symbols)
-            self.emit("addiu", "$sp", "$sp", str(-4 * f.info.n_slots), comment=f"locals: {slots}")
+        info = f.info
+        assert info is not None, "sema fills FuncInfo"
+        if info.n_slots:
+            params, local = info.symbols[:info.n_params], info.symbols[info.n_params:]
+            parts = [f"{title}: " + "  ".join(f"{s.name}@{s.offset}" for s in syms)
+                     for title, syms in (("params", params), ("locals", local)) if syms]
+            self.emit("addiu", "$sp", "$sp", str(-4 * info.n_slots), comment="  ".join(parts))
+        for i, p in enumerate(info.symbols[:info.n_params]):  # README 6.2: spill right away
+            self.emit("sw", f"$a{i}", f"{p.offset}($fp)")
         for s in body.stmts:
             self.stmt(s)
-        if not (body.stmts and isinstance(body.stmts[-1], ast.Return)):
-            self.emit("move", "$v0", "$zero", comment="main returns 0 by default")
+        if info.falls_through:
+            why = "main returns 0 by default" if f.name == "main" else "no return: 0 (W001)"
+            self.emit("move", "$v0", "$zero", comment=why)
         self.label(f"L_epi_{f.name}")
         self.emit("move", "$sp", "$fp", comment="epilogue")
         self.emit("lw", "$fp", "0($sp)")
@@ -180,6 +207,15 @@ class _Codegen:
                 return
             case ast.Empty():
                 return
+            case ast.If():
+                self.if_stmt(s)
+                return
+            case ast.While():
+                self.while_stmt(s)
+                return
+            case ast.For():
+                self.for_stmt(s)
+                return
         self.lines.append(Comment(self.source_text(s.pos, s.end)))
         match s:
             case ast.Return():
@@ -191,10 +227,54 @@ class _Codegen:
             case ast.Printf():
                 self.printf(s)
             case ast.Decl():
-                for (_, init), sym in zip(s.items, s.symbols, strict=True):
-                    if init is not None:  # no initializer: the slot keeps whatever was there
-                        self.expr(init)
-                        self.emit("sw", "$t0", f"{sym.offset}($fp)")
+                self.decl(s)
+
+    def decl(self, s: ast.Decl) -> None:
+        for (_, init), sym in zip(s.items, s.symbols, strict=True):
+            if init is not None:  # no initializer: the slot keeps whatever was there
+                self.expr(init)
+                self.emit("sw", "$t0", f"{sym.offset}($fp)")
+
+    def branch_if_false(self, cond: ast.Expr, target: str) -> None:
+        self.expr(cond)
+        self.emit("beq", "$t0", "$zero", target)
+
+    def if_stmt(self, s: ast.If) -> None:
+        n = self.new_label()
+        self.lines.append(Comment(self.source_text(s.pos, s.head_end)))
+        self.branch_if_false(s.cond, f"L{n}_else" if s.else_ else f"L{n}_endif")
+        self.stmt(s.then)
+        if s.else_ is not None:
+            self.emit("b", f"L{n}_endif")
+            self.label(f"L{n}_else")
+            self.lines.append(Comment("else"))
+            self.stmt(s.else_)
+        self.label(f"L{n}_endif")
+
+    def while_stmt(self, s: ast.While) -> None:
+        n = self.new_label()
+        self.lines.append(Comment(self.source_text(s.pos, s.head_end)))
+        self.label(f"L{n}_while")
+        self.branch_if_false(s.cond, f"L{n}_wend")
+        self.stmt(s.body)
+        self.emit("b", f"L{n}_while")
+        self.label(f"L{n}_wend")
+
+    def for_stmt(self, s: ast.For) -> None:
+        n = self.new_label()
+        self.lines.append(Comment(self.source_text(s.pos, s.head_end)))
+        if isinstance(s.init, ast.Decl):
+            self.decl(s.init)
+        elif s.init is not None:
+            self.expr(s.init)
+        self.label(f"L{n}_for")
+        if s.cond is not None:
+            self.branch_if_false(s.cond, f"L{n}_fend")
+        self.stmt(s.body)
+        if s.step is not None:
+            self.expr(s.step)
+        self.emit("b", f"L{n}_for")
+        self.label(f"L{n}_fend")
 
     def printf(self, s: ast.Printf) -> None:
         # README 4.5: evaluate every argument (pushed) before printing anything.
@@ -232,6 +312,10 @@ class _Codegen:
                 self.expr(e.operand)
                 if e.op == "-":
                     self.emit("subu", "$t0", "$zero", "$t0", comment=_describe(e))
+                elif e.op == "!":
+                    self.emit("sltiu", "$t0", "$t0", "1", comment=_describe(e))  # == 0
+            case ast.Binary() if e.op in ("&&", "||"):
+                self.logical(e)
             case ast.Binary():
                 self.expr(e.left)
                 self.push()
@@ -258,8 +342,33 @@ class _Codegen:
         self.emit("jal", e.resolved.label)
         self.emit("move", "$t0", "$v0")
 
+    def logical(self, e: ast.Binary) -> None:
+        """&& and || evaluate the right operand only when needed and give 0 or 1."""
+        n = self.new_label()
+        if e.op == "&&":
+            branch, short, value, end = "beq", f"L{n}_and_false", "0", f"L{n}_and_end"
+        else:
+            branch, short, value, end = "bne", f"L{n}_or_true", "1", f"L{n}_or_end"
+        self.expr(e.left)
+        self.emit(branch, "$t0", "$zero", short)
+        self.expr(e.right)
+        self.emit("sltu", "$t0", "$zero", "$t0", comment=_describe(e))  # != 0 -> 1
+        self.emit("b", end)
+        self.label(short)
+        self.emit("li", "$t0", value)
+        self.label(end)
+
     def binary(self, e: ast.Binary) -> None:
         note = _describe(e)
+        if e.op in _COMPARE:  # $t1 <op> $t0 as 0/1, with real instructions only (no seq/sge)
+            *head, last = _COMPARE[e.op]
+            for op, *args in head:
+                self.emit(op, *args)
+            self.emit(last[0], *last[1:], comment=note)
+            return
+        if e.op == "%":
+            self.remainder(e, note)
+            return
         if e.op == "+":
             self.emit("addu", "$t0", "$t1", "$t0", comment=note)
         elif e.op == "-":
@@ -278,3 +387,16 @@ class _Codegen:
             self.emit("div", "$t1", "$t0")
             self.emit("mflo", "$t0", comment=note)
             self.label(f"L{n}_end")
+
+    def remainder(self, e: ast.Binary, note: str) -> None:
+        """Same guard as `/` (README 6.4, ADR-008): x % 0 panics, x % -1 == 0."""
+        n = self.new_label()
+        self.emit("beq", "$t0", "$zero", "__rt_div0", comment="divisor == 0 -> panic")
+        self.emit("li", "$t2", "-1")
+        self.emit("bne", "$t0", "$t2", f"L{n}_mod")
+        self.emit("li", "$t0", "0", comment="x % -1 == 0 (no INT_MIN trap)")
+        self.emit("b", f"L{n}_mend")
+        self.label(f"L{n}_mod")
+        self.emit("div", "$t1", "$t0")
+        self.emit("mfhi", "$t0", comment=note)  # remainder has the dividend's sign, as in C99
+        self.label(f"L{n}_mend")

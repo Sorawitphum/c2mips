@@ -13,7 +13,7 @@ from pathlib import Path
 from c2mips import __version__
 from c2mips.ast import sexpr
 from c2mips.diagnostics import CompileError
-from c2mips.driver import compile_source
+from c2mips.driver import compile_program
 from c2mips.lexer import lex
 from c2mips.parser import parse
 
@@ -58,11 +58,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.emit == "ast":
             sys.stdout.write(sexpr(parse(lex(src, name))) + "\n")
             return 0
-        asm = compile_source(src, name, runtime=not args.no_runtime)
+        asm, warnings = compile_program(src, name, runtime=not args.no_runtime)
     except CompileError as e:
         for d in e.diagnostics:
             sys.stderr.write(d.render(src))
         return 1
+    for w in warnings:
+        sys.stderr.write(w.render(src))
 
     if args.emit == "asm":
         sys.stdout.write(asm)

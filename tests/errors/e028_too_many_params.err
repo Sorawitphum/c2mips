@@ -1,0 +1,3 @@
+e028_too_many_params.c:1:39: error[E028]: too many parameters (at most 4)
+int f(int a, int b, int c, int d, int e) { return a; }
+                                      ^
