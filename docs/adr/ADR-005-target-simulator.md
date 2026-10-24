@@ -3,7 +3,7 @@
 > สำเนาจาก README.md §7 — README เป็นต้นฉบับ
 
 
-**Status:** Accepted (ส่วน MARS = Proposed จนกว่า M0 จะยืนยัน) · **Date:** 2026-10-24
+**Status:** Accepted (ส่วน MARS ยืนยันใน M0 แล้ว — README §13 S14–S20) · **Date:** 2026-10-24
 
 | Option | ข้อดี | ข้อเสีย |
 |---|---|---|

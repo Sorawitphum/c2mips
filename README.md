@@ -536,7 +536,7 @@ main:   jal   f_main
 
 ### ADR-005: Simulator เป้าหมาย
 
-**Status:** Accepted (ส่วน MARS = Proposed จนกว่า M0 จะยืนยัน) · **Date:** 2026-10-24
+**Status:** Accepted (ส่วน MARS ยืนยันใน M0 แล้ว — §13 S14–S20) · **Date:** 2026-10-24
 
 | Option | ข้อดี | ข้อเสีย |
 |---|---|---|
@@ -894,9 +894,9 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 ### Checklist ราย milestone
 
 **M0**
-- [ ] โครง repo ตาม §5.4, `ruff` + `mypy --strict` ผ่านตั้งแต่วันแรก
-- [ ] `tests/runtime/`: ย้าย exhaustive nCk จาก spike (data table + loop)
-- [ ] ตรวจ MARS 4.5: (1) เริ่มที่คำสั่งแรกของ `.text` จริงไหม (2) syscall 17 ส่ง exit code ไหม (3) `.asciiz` escape เหมือน SPIM ไหม (4) non-ASCII ทำอะไร (5) `div` 2 operand ไม่ใส่ check จริงไหม
+- [x] โครง repo ตาม §5.4, `ruff` + `mypy --strict` ผ่านตั้งแต่วันแรก
+- [x] `tests/runtime/`: ย้าย exhaustive nCk จาก spike (data table + loop)
+- [x] ตรวจ MARS 4.5 (ผลใน §13 S14–S20): (1) เริ่มที่คำสั่งแรกของ `.text` จริงไหม (2) syscall 17 ส่ง exit code ไหม (3) `.asciiz` escape เหมือน SPIM ไหม (4) non-ASCII ทำอะไร (5) `div` 2 operand ไม่ใส่ check จริงไหม
 - [ ] CI บน GitHub Actions
 
 **M1**
@@ -952,7 +952,18 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 | S11 | `example.s` (ภาคผนวก B) บน SPIM ให้ stdout ตรงกับ gcc + `nck_ref.c` ทุกไบต์ | ยืนยัน frame + call + printf lowering |
 | S12 | recursion `fact(12)` ตาม frame layout §6.2 ได้ `479001600` | ยืนยัน prologue/epilogue/param slot |
 | S13 | `nck_ref.c` ตรง `math.comb` บน n ∈ [−1, 33], k ∈ [−2, 35] และ `nCk(65537,2)` → exit 70 | oracle ของ differential |
-| ⏳ | **MARS 4.5.1 ยังไม่ได้รัน** (ดาวน์โหลด jar ได้แต่ไม่ได้รันใน environment ที่ทำแผน) | งาน M0 |
+
+**MARS (M0):** Windows 11, Java 21.0.5, `Mars4_5.jar` v.4.5.1 (sha256 `ac340b676ba2b62246b9df77e62f81ad4447bcfd329ab539716bcd09950b7096`) รันด้วย `java -jar Mars4_5.jar nc file.s`; ฝั่งเทียบคือ `spim 8.0+dfsg-7` (Debian `.deb`) ใน WSL2 — 24 ต.ค. 2026
+
+| # | ข้อเท็จจริง | ผลต่อการออกแบบ |
+|---|---|---|
+| S14 | (1) MARS เริ่มรันที่ **คำสั่งแรกของ `.text`** ไม่ใช่ที่ `main` (ยกเว้นใส่ option `sm`); SPIM เข้าที่ `main` ผ่าน `__start` | ✅ stub §6.7 ต้องอยู่บนสุดของ `.text` |
+| S15 | (2) syscall 17 → exit status ของ process `java` จริง (ทดสอบ 42 และ 70); ถ้าตกท้าย `.text` โดยไม่ exit: MARS exit 0 เงียบ ๆ, SPIM เตือนทาง stderr แล้ว exit 0 | ✅ exit code ทดสอบได้บน MARS; stub จบด้วย syscall 17 เสมอ |
+| S16 | (3) `.asciiz` บน MARS: `\n \t \"` ถูก แต่ `\\` ได้ `\` **ตัวเดียว** (ต่างจาก SPIM ที่ได้สองตัว — S9; และ `"[\\]"` ทำ SPIM parse error) · `.byte 92` ได้ `\` ตัวเดียวทั้งคู่ | ✅ กฎ §6.6 (มี `\` → `.byte`) จำเป็นและใช้ได้ทั้งคู่ |
+| S17 | (4) non-ASCII บน MARS: ไทยใน comment **ไม่ค้าง** (ต่างจาก S8); ไทยใน `.asciiz` **เพี้ยน** (MARS เก็บแค่ไบต์ล่างของแต่ละอักขระ); `.byte` ค่า 128–255 เก็บถูกแต่ MARS พิมพ์ warning `out-of-range for a signed value and possibly truncated` **ลง stdout** ทุกไบต์; `.byte` ค่าลบ (เช่น 0xE0 → `-32`) ได้ไบต์เดียวกัน ไม่มี warning และ SPIM พิมพ์ไทยถูก · stdout ของ Java บน Windows แปลงไบต์ ≥ 0x80 เป็น `?` ต้องรันด้วย `-Dstdout.encoding=ISO-8859-1` จึงได้ไบต์ตรง | ASCII ล้วน (NFR-6) ยังจำเป็นเพราะ SPIM · **ข้อเสนอ M1:** Emitter เขียนไบต์ ≥ 0x80 ใน `.byte` เป็นค่าลบ (§6.6 ยังไม่แก้ — รอตัดสินใจ) |
+| S18 | (5) `div $t1, $t0` บน MARS เป็นคำสั่งจริง 1 คำสั่ง (4 ไบต์ เท่ากับ SPIM) ไม่แทรก check: `5/0` ไม่ trap, LO ค้างค่าเก่า (เหมือน SPIM); `INT_MIN/-1` MARS ได้ `-2147483648` แต่ SPIM LO ค้างค่าเก่า; `-7/2 = -3` ทั้งคู่ | ✅ ผลดิบต่างกัน แต่ guard §6.4 ให้ผลเดียวกันทั้งคู่ |
+| S19 | `runtime.s` บน MARS: exhaustive 1,819 กรณีตรง `math.comb` (0.6 วินาที); overflow (34,16 · 65537,2 · 100000,2 · 2147483647,1073741823) → ข้อความถูก + exit 70; `__rt_div0` → exit 70; `example.s` (ภาคผนวก B) → `a = 23` / `C(10,3) = 120` exit 0 | ✅ S3/S4/S11 เป็นจริงบน MARS ด้วย — ยังไม่ต้องมี `--target mars` (Q30) |
+| S20 | harness ของ MARS: หลังโปรแกรมจบ MARS พิมพ์บรรทัดว่างเพิ่ม 1 บรรทัด (`\r\n` บน Windows); error ตอน assemble ออก stdout แต่ **exit 0** ถ้าไม่ใส่ `ae<n>` | MARS harness (M6) ต้องตัดบรรทัดท้าย และใช้ `nc ae<n>` |
 
 ---
 

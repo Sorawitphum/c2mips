@@ -33,7 +33,8 @@ def run_spim(asm: Path, timeout: float = 10) -> tuple[str, int]:
     # The WSL shim (tools/spim.cmd) kills spim itself shortly after our own timeout fires.
     env = {**os.environ, "C2MIPS_SPIM_TIMEOUT": str(timeout + 2)}
     p = subprocess.run([SPIM, "-stext", "4194304", "-file", str(asm)],
-                       capture_output=True, text=True, timeout=timeout, env=env)
+                       capture_output=True, text=True, timeout=timeout, env=env,
+                       stdin=subprocess.DEVNULL)  # bad file -> spim's REPL must not wait
     lines = p.stdout.split("\n")
     try:
         start = next(i for i, ln in enumerate(lines) if ln.startswith("Loaded:")) + 1
