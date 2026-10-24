@@ -1,0 +1,15 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: sudo apt-get update && sudo apt-get install -y spim gcc
+      - run: pip install -e ".[dev]"
+      - run: ruff check . && mypy --strict c2mips
+      - run: pytest -q --cov=c2mips --cov-branch --cov-fail-under=90
+      # M6: enable once tests/random exists (pytest exits 5 when no test is collected)
+      # - run: pytest -q -m random --random-count 500
