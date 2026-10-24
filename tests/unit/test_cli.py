@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import SPIM
+from conftest import REPO, sim_cli
 
 from c2mips import RUNTIME_S
 from c2mips.__main__ import main
@@ -93,13 +93,35 @@ def test_python_dash_m(cfile: Path) -> None:
     assert p.stdout.startswith("(program")
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 def test_run_forwards_stdout_and_exit_code(cfile: Path, monkeypatch: pytest.MonkeyPatch,
                                            capfd: pytest.CaptureFixture[str]) -> None:
-    assert SPIM is not None
-    monkeypatch.setenv("SPIM", SPIM)
-    assert main([str(cfile), "--run"]) == 3
+    sim = sim_cli(monkeypatch)
+    assert main([str(cfile), "--run", *sim]) == 3
     assert capfd.readouterr().out == "hi 42\n"
+
+
+@pytest.mark.sim
+def test_run_forwards_stdin_for_scanf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = REPO / "tests" / "programs" / "scanf_basic.c"
+    sim = sim_cli(monkeypatch)  # sets SPIM / MARS_JAR for the child process too
+    p = subprocess.run([sys.executable, "-m", "c2mips", str(src), "-o", str(tmp_path / "s.s"),
+                        "--run", *sim], input=(src.with_suffix(".stdin")).read_text(),
+                       capture_output=True, text=True, timeout=120)
+    assert (p.stdout.replace("\r\n", "\n"), p.returncode) == ("12 -85 -3\nsum 60\n", 22)
+
+
+@pytest.mark.parametrize(("sim", "message"), [
+    ("auto", "no simulator found"), ("spim", "spim not found"), ("mars", "MARS needs java"),
+])
+def test_run_without_a_simulator_is_exit_2(cfile: Path, monkeypatch: pytest.MonkeyPatch,
+                                           capsys: pytest.CaptureFixture[str], sim: str,
+                                           message: str) -> None:
+    monkeypatch.delenv("SPIM", raising=False)
+    monkeypatch.delenv("MARS_JAR", raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    assert main([str(cfile), "--run", "--sim", sim]) == 2
+    assert message in capsys.readouterr().err
 
 
 def test_warning_still_compiles(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -110,3 +132,12 @@ def test_warning_still_compiles(tmp_path: Path, capsys: pytest.CaptureFixture[st
     err = capsys.readouterr().err
     assert ": warning[W001]: control may reach the end of 'f'" in err
     assert p.with_suffix(".s").exists()
+
+
+@pytest.mark.sim
+def test_run_exit_code_is_8_bits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+                                 capfd: pytest.CaptureFixture[str]) -> None:
+    # `return -1;` exits 255 on every OS and simulator (java on Windows would say 4294967295)
+    p = tmp_path / "neg.c"
+    p.write_text("int main(void) { return -1; }\n", encoding="utf-8")
+    assert main([str(p), "--run", *sim_cli(monkeypatch)]) == 255

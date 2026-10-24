@@ -8,7 +8,7 @@ import random
 from pathlib import Path
 
 import pytest
-from conftest import run_spim
+from conftest import run_sim
 from exprgen import PANIC, c_text, evaluate, random_expr
 
 from c2mips import cvalue
@@ -40,12 +40,12 @@ def c_text_int(v: int) -> str:
     return "-2147483647 - 1" if v == cvalue.INT_MIN else str(v)
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize("seed", range(1, 7))
 @pytest.mark.parametrize("opt", [0, 1])
 def test_random_expressions(seed: int, opt: int, tmp_path: Path) -> None:
     src, want = program(seed)
     asm = tmp_path / f"r{seed}.s"
     asm.write_bytes(compile_source(src, f"random_{seed}.c", opt=opt).encode("ascii"))
-    got = run_spim(asm, timeout=30)
+    got = run_sim(asm, timeout=30)
     assert got == (want, 0), f"seed {seed} -O{opt}\n{src}"

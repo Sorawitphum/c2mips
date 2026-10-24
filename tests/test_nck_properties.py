@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import run_spim
+from conftest import run_sim
 
 from c2mips.driver import compile_source
 
@@ -20,10 +20,10 @@ def run_checks(checks: list[str], tmp_path: Path) -> tuple[str, int]:
     src = f'#include <stdio.h>\n#include "c2mips.h"\n\nint main(void) {{\n{body}    return 0;\n}}\n'
     asm = tmp_path / "props.s"
     asm.write_bytes(compile_source(src, "props.c").encode("ascii"))
-    return run_spim(asm, timeout=30)
+    return run_sim(asm, timeout=30)
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize(("lo", "hi"), [(0, 12), (13, 20), (21, 26), (27, 32)])
 def test_n16_pascal_rule(lo: int, hi: int, tmp_path: Path) -> None:
     checks = [f"nCk({n}, {k}) + nCk({n}, {k + 1}) - nCk({n + 1}, {k + 1})"
@@ -31,7 +31,7 @@ def test_n16_pascal_rule(lo: int, hi: int, tmp_path: Path) -> None:
     assert run_checks(checks, tmp_path) == ("0\n" * len(checks), 0)
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize(("lo", "hi"), [(0, 20), (21, 28), (29, 33)])
 def test_n17_symmetry(lo: int, hi: int, tmp_path: Path) -> None:
     checks = [f"nCk({n}, {k}) - nCk({n}, {n - k})"

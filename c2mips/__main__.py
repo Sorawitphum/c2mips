@@ -27,7 +27,11 @@ def _args(argv: list[str]) -> argparse.Namespace:
     opt = p.add_mutually_exclusive_group()
     opt.add_argument("-O0", dest="opt", action="store_const", const=0, default=0)
     opt.add_argument("-O1", dest="opt", action="store_const", const=1)
-    p.add_argument("--run", action="store_true", help="run on spim and forward its exit code")
+    p.add_argument("--run", action="store_true",
+                   help="run the .s and forward its stdin, stdout and exit code")
+    p.add_argument("--sim", choices=["auto", "spim", "mars"], default="auto",
+                   help="simulator for --run: spim ($SPIM or PATH) or MARS ($MARS_JAR + java); "
+                        "auto = spim if found, else MARS")
     p.add_argument("--no-runtime", action="store_true", help="do not append runtime.s")
     p.add_argument("--version", action="version", version=f"c2mips {__version__}")
     return p.parse_args(argv)
@@ -70,23 +74,54 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     out = args.output or args.input.with_suffix(".s")
     out.write_bytes(asm.encode("ascii"))
-    return _run(out) if args.run else 0
+    return _run(out, args.sim) if args.run else 0
 
 
-def _run(asm: Path) -> int:
-    """`spim -stext 4194304 -file asm`, without SPIM's 5-line banner (S1, S10)."""
+def _simulator(choice: str) -> tuple[str, str] | str:
+    """("spim", path) or ("mars", jar), or an error message."""
     spim = os.environ.get("SPIM") or shutil.which("spim")
-    if spim is None:
-        return _fail("spim not found (install it or set SPIM)")
-    p = subprocess.run([spim, "-stext", "4194304", "-file", str(asm)], capture_output=True,
-                       stdin=subprocess.DEVNULL)
-    out = p.stdout.decode("utf-8", errors="replace")
-    head, sep, rest = out.partition("Loaded:")
-    if sep:
-        out = rest.partition("\n")[2]
-    sys.stdout.write(out)
+    jar = os.environ.get("MARS_JAR")
+    java = shutil.which("java")
+    if choice in ("auto", "spim") and spim:
+        return "spim", spim
+    if choice in ("auto", "mars") and jar and java:
+        return "mars", jar
+    if choice == "spim":
+        return "spim not found (install it, or set SPIM to its path)"
+    if choice == "mars":
+        return "MARS needs java on PATH and MARS_JAR set to Mars4_5.jar"
+    return ("no simulator found: install spim (or set SPIM), or set MARS_JAR to Mars4_5.jar "
+            "and install java")
+
+
+def _run(asm: Path, choice: str) -> int:
+    """Run asm, forwarding stdin (for scanf) and the exit code.
+
+    spim: `spim -stext 4194304 -file asm` without its 5-line banner (S1, S10).
+    MARS: `java -jar Mars4_5.jar nc ae2 asm` without the extra last line (S20), with a
+    latin-1 stdout so .byte strings come out byte for byte (S17).
+    """
+    sim = _simulator(choice)
+    if isinstance(sim, str):
+        return _fail(sim)
+    kind, path = sim
+    if kind == "spim":
+        cmd = [path, "-stext", "4194304", "-file", str(asm)]
+    else:
+        cmd = ["java", "-Dstdout.encoding=ISO-8859-1", "-jar", path, "nc", "ae2", str(asm)]
+    p = subprocess.run(cmd, capture_output=True)  # stdin is inherited: pipe input for scanf
+    raw = p.stdout
+    if kind == "spim":
+        _, sep, rest = raw.partition(b"Loaded:")
+        raw = rest.partition(b"\n")[2] if sep else raw
+    elif raw.endswith(b"\r\n"):
+        raw = raw[:-2]
+    elif raw.endswith(b"\n"):
+        raw = raw[:-1]
+    sys.stdout.write(raw.decode("utf-8", errors="replace"))
     sys.stderr.write(p.stderr.decode("utf-8", errors="replace"))
-    return p.returncode
+    # exit2(-1) is 255 on Linux but 4294967295 from java on Windows: report 8 bits everywhere
+    return p.returncode & 0xFF
 
 
 def cli() -> None:

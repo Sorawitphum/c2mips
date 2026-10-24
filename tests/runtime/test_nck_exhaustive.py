@@ -11,7 +11,7 @@ import math
 from pathlib import Path
 
 import pytest
-from conftest import run_spim
+from conftest import run_sim
 
 from c2mips import RUNTIME_S
 
@@ -59,7 +59,7 @@ def program(text: str, data: str = "") -> str:
 def run(tmp_path: Path, src: str) -> tuple[str, int]:
     asm = tmp_path / "t.s"
     asm.write_bytes(src.encode("ascii"))
-    return run_spim(asm)
+    return run_sim(asm)
 
 
 def test_oracle_matches_spec_table() -> None:
@@ -87,7 +87,7 @@ def test_case_counts() -> None:
     assert len(OK) + len(OVF) == len(CASES)
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 def test_nck_exhaustive(tmp_path: Path) -> None:
     table = "".join(f"        .word {n}, {k}\n" for n, k in OK)
     text = f"""\
@@ -121,7 +121,7 @@ done:   li    $a0, 0
     assert not bad, f"{len(bad)} mismatches (n, k, got, want): {bad[:20]}"
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize(("n", "k"), OVF)
 def test_nck_overflow(tmp_path: Path, n: int, k: int) -> None:
     text = f"""\
@@ -135,7 +135,7 @@ def test_nck_overflow(tmp_path: Path, n: int, k: int) -> None:
     assert run(tmp_path, program(text)) == OVF_OUT
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 def test_div0(tmp_path: Path) -> None:
     # Same shape as the divide guard in Spec §6.4.
     text = """\
@@ -148,7 +148,7 @@ def test_div0(tmp_path: Path) -> None:
     assert run(tmp_path, program(text)) == DIV0_OUT
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 def test_nck_preserves_callee_saved(tmp_path: Path) -> None:
     # Spec §6.8 / Q20: leaf routine, never touches $sp, $fp, $gp, $s*.
     regs = [f"$s{i}" for i in range(8)] + ["$fp", "$gp", "$sp"]

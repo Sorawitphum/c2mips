@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 
 import pytest
-from conftest import REPO, run_gcc, run_spim
+from conftest import REPO, run_gcc, run_sim
 
 from c2mips.driver import compile_source
 
@@ -33,13 +33,13 @@ EXPECTED = {
 }
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize("name", sorted(EXPECTED))
 def test_example_on_spim(name: str, tmp_path: Path) -> None:
     src = EXAMPLES / f"{name}.c"
     asm = tmp_path / f"{name}.s"
     asm.write_bytes(compile_source(src.read_text(encoding="utf-8"), src.name).encode("ascii"))
-    assert run_spim(asm, timeout=30) == (EXPECTED[name], 0)
+    assert run_sim(asm, timeout=30) == (EXPECTED[name], 0)
 
 
 @pytest.mark.gcc

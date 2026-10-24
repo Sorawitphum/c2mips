@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import REPO, read_expected, run_spim, stdin_for
+from conftest import REPO, read_expected, run_sim, stdin_for
 
 from c2mips.driver import compile_source
 
@@ -53,24 +53,24 @@ def test_o0_is_unchanged_by_the_opt_parameter() -> None:
     assert compile_source(src, "example.c", opt=0) == compile_source(src, "example.c")
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize("src", PROGRAMS, ids=lambda p: p.stem)
 def test_o1_program_matches_golden(src: Path, tmp_path: Path) -> None:
     # -O equivalence: *.expected is what -O0 prints (test_programs.py), so -O1 must match it.
     asm = tmp_path / f"{src.stem}.s"
     asm.write_bytes(compile_file(src, 1).encode("ascii"))
     want = read_expected(src.with_suffix(".expected"))
-    assert run_spim(asm, timeout=30, stdin=stdin_for(src)) == want
+    assert run_sim(asm, timeout=30, stdin=stdin_for(src)) == want
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.parametrize("src", EXAMPLES, ids=lambda p: p.stem)
 def test_o1_example_matches_o0(src: Path, tmp_path: Path) -> None:
     results = []
     for opt in (0, 1):
         asm = tmp_path / f"{src.stem}_O{opt}.s"
         asm.write_bytes(compile_file(src, opt).encode("ascii"))
-        results.append(run_spim(asm, timeout=30))
+        results.append(run_sim(asm, timeout=30))
     assert results[0] == results[1]
 
 

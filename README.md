@@ -52,7 +52,8 @@ C(10,3) = 120
 
 | OS | c2mips | SPIM | MARS |
 |---|---|---|---|
-| Windows 11 | ✅ test ครบทั้งชุด | ✅ ผ่าน WSL (`tools\spim.cmd`) | ✅ |
+| Windows 11 + WSL | ✅ test ครบทั้งชุด | ✅ ผ่าน WSL (`tools\spim.cmd`) | ✅ |
+| Windows 11 **ไม่มี WSL** | ✅ test ครบทั้งชุด (รันบน MARS) | — ไม่มี spim แบบบรรทัดคำสั่งสำหรับ Windows | ✅ ใช้แทน spim ได้ทั้ง `--run` และ test |
 | Linux (Ubuntu 24.04) | ควรใช้ได้ (Python ล้วน) — CI ตั้งไว้แล้วแต่ยังไม่เคยรัน | ✅ `apt install spim` (Spec §13) | ควรใช้ได้ (Java) |
 | macOS | ควรใช้ได้ (Python ล้วน) — ยังไม่ได้ทดสอบ | ยังไม่ได้ทดสอบ (ดู [§3](#macos)) | ควรใช้ได้ (Java) — ยังไม่ได้ทดสอบ |
 
@@ -98,7 +99,25 @@ distro ที่ไม่มีแพ็กเกจ `spim` (เช่น Arch, 
 
 ### Windows
 
-SPIM แบบบรรทัดคำสั่งไม่มีสำหรับ Windows จึงรันใน WSL:
+SPIM แบบบรรทัดคำสั่งไม่มีสำหรับ Windows จึงมีสองทาง — เลือกทางเดียวพอ
+
+**ทาง A: ไม่ใช้ WSL → ใช้ MARS** (ต้องการแค่ Java)
+
+1. ติดตั้ง Java 8 ขึ้นไป เช่น Eclipse Temurin จาก <https://adoptium.net> แล้วตรวจด้วย `java -version`
+2. ดาวน์โหลด MARS และตรวจ checksum (PowerShell):
+
+   ```powershell
+   Invoke-WebRequest https://github.com/dpetersanderson/MARS/releases/download/v.4.5.1/Mars4_5.jar -OutFile C:\tools\Mars4_5.jar
+   (Get-FileHash C:\tools\Mars4_5.jar).Hash   # AC340B676BA2B62246B9DF77E62F81AD4447BCFD329AB539716BCD09950B7096
+   ```
+
+3. บอก c2mips ว่า jar อยู่ไหน — ชั่วคราว: `$env:MARS_JAR = "C:\tools\Mars4_5.jar"` ·
+   ถาวร: `setx MARS_JAR "C:\tools\Mars4_5.jar"` (เปิด terminal ใหม่หลังสั่ง)
+
+แค่นี้ `c2mips prog.c --run` จะใช้ MARS เองเมื่อไม่เจอ spim และ test ทุกตัวที่ต้องใช้ simulator ก็รันบน MARS
+(ช้ากว่า spim เพราะเปิด JVM ทุกโปรแกรม)
+
+**ทาง B: ใช้ WSL → ได้ spim ตัวจริง** (เหมือน Linux)
 
 ```powershell
 wsl --install -d Ubuntu-24.04
@@ -109,7 +128,8 @@ c2mips และ test จะเรียก spim ผ่าน `tools\spim.cmd` �
 ถ้า Ubuntu ไม่ใช่ distro ค่าเริ่มต้นของ WSL ให้ตั้ง `$env:C2MIPS_WSL_DISTRO = "Ubuntu-24.04"`
 และสำหรับ `--run` ให้ตั้ง `$env:SPIM = "<path ของ repo>\tools\spim.cmd"`
 
-gcc สำหรับรัน test: ใช้รุ่นใหม่ (เช่น WinLibs หรือ MSYS2) แล้วตั้ง `$env:GCC` ถ้าไม่อยู่ใน PATH —
+ทั้งสองทาง — gcc สำหรับรัน test (ไม่จำเป็นต่อการใช้งาน): ใช้รุ่นใหม่ (เช่น WinLibs หรือ MSYS2)
+แล้วตั้ง `$env:GCC` ถ้าไม่อยู่ใน PATH —
 **อย่าใช้ MinGW gcc 6.3** มันคำนวณ `-(INT_MIN / x)` ผิดภายใต้ `-fwrapv` ([Spec S23](Spec.md#13-ผลการ-spike-ที่ยืนยันแล้ว))
 
 ### macOS
@@ -137,15 +157,17 @@ MARS พิมพ์บรรทัดว่างเพิ่มหนึ่ง
 ```bash
 c2mips prog.c                    # ได้ prog.s ข้าง ๆ ไฟล์ต้นทาง
 c2mips prog.c -o out.s -O1       # ตั้งชื่อเอง + optimize
-c2mips prog.c --run              # คอมไพล์แล้วรันบน spim, ส่ง stdout และ exit code ต่อ
-spim -file prog.s                # หรือรันเอง (Windows: tools\spim.cmd -file prog.s)
+c2mips prog.c --run              # คอมไพล์แล้วรัน (spim ถ้ามี ไม่งั้น MARS), ส่ง stdin/stdout/exit code ต่อ
+spim -file prog.s                # หรือรันเอง (Windows + WSL: tools\spim.cmd -file prog.s)
+java -jar Mars4_5.jar nc prog.s  # หรือรันบน MARS เอง
 ```
 
 | ตัวเลือก | ความหมาย |
 |---|---|
 | `-o FILE` | ไฟล์ output (ค่าเริ่มต้น: ชื่อเดิม นามสกุล `.s`) |
 | `-O0` / `-O1` | `-O0` (ค่าเริ่มต้น) อ่านง่ายตรงตาม template · `-O1` พับค่าคงที่และลดคำสั่ง ~32% ผลลัพธ์เหมือนกันทุกโปรแกรม |
-| `--run` | รันบน `spim` (หาจาก `$SPIM` แล้วจาก PATH) |
+| `--run` | รันไฟล์ที่ได้ ส่ง stdin, stdout และ exit code ต่อ |
+| `--sim auto\|spim\|mars` | simulator ของ `--run` · `spim` หาจาก `$SPIM` แล้ว PATH · `mars` ใช้ `$MARS_JAR` + `java` · `auto` (ค่าเริ่มต้น) = spim ถ้าเจอ ไม่งั้น MARS |
 | `--emit=tokens\|ast\|asm` | พิมพ์ผลของแต่ละ stage ออกหน้าจอแทนการเขียนไฟล์ |
 | `--no-runtime` | ไม่ต่อท้าย runtime (`nCk`, panic) |
 
@@ -162,8 +184,8 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 **ผลตอนรัน:** สิ่งที่ `main` return คือ exit code ของโปรแกรม · หารด้วยศูนย์หรือ `nCk` ล้น int →
 พิมพ์ `runtime error: ...` แล้วจบด้วย exit code **70**
 
-**รับ input:** `scanf("%d", &x)` อ่านจำนวนเต็ม **บรรทัดละหนึ่งตัว** ป้อนผ่าน stdin เช่น
-`printf '17\n-5\n' | spim -file prog.s` — `--run` ยังไม่ส่ง stdin ต่อ ให้รัน spim เอง
+**รับ input:** `scanf("%d", &x)` อ่านจำนวนเต็ม **บรรทัดละหนึ่งตัว** — พิมพ์เองตอนรัน หรือ pipe เข้าไป เช่น
+`printf '17\n-5\n' | c2mips prog.c --run` (PowerShell: `"17`n-5" | c2mips prog.c --run`)
 
 **ดูโค้ดทีละคำสั่ง:** เปิดไฟล์ `.s` ใน MARS หรือ QtSpim แล้ว step ดู register และ stack ได้ —
 ไฟล์จาก `-O0` มี comment บอกว่าแต่ละช่วงมาจากบรรทัด C ไหน
@@ -201,7 +223,9 @@ mypy --strict c2mips
 pytest -q                                   # ~1,500 test, 2-3 นาที
 ```
 
-test ที่ขาดเครื่องมือ (spim, gcc, MARS) จะถูก **skip** ไม่ใช่ fail — ดูจำนวน `skipped` ท้าย output
+test ที่ขาดเครื่องมือ (spim, gcc, MARS) จะถูก **skip** ไม่ใช่ fail — ดูจำนวน `skipped` ท้าย output ·
+test ที่ต้องรันไฟล์ `.s` ใช้ spim ถ้ามี ไม่งั้นใช้ MARS (`$MARS_JAR`) — บังคับเลือกได้ด้วย
+`C2MIPS_SIMULATOR=spim` หรือ `mars`
 
 ```bash
 pytest -q -m random --random-count 500      # โปรแกรมสุ่ม: SPIM -O0 = SPIM -O1 = gcc = Python

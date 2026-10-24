@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import REPO, SPIM, run_gcc, run_spim
+from conftest import REPO, SIMULATOR, run_gcc, run_sim, sim_cli
 
 from c2mips import RUNTIME_S
 from c2mips.__main__ import main
@@ -109,12 +109,12 @@ def test_examples_example_c_is_appendix_b() -> None:
     assert EXAMPLE.read_text(encoding="utf-8") == APPENDIX_B_C
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 def test_example_c_on_spim(tmp_path: Path) -> None:
     # S11: appendix B output on SPIM ...
     asm = tmp_path / "example.s"
     asm.write_bytes(compile_source(APPENDIX_B_C, "example.c").encode("ascii"))
-    assert run_spim(asm) == (APPENDIX_B_OUT, 0)
+    assert run_sim(asm) == (APPENDIX_B_OUT, 0)
 
 
 @pytest.mark.gcc
@@ -123,7 +123,7 @@ def test_example_c_on_gcc(tmp_path: Path) -> None:
     assert run_gcc(EXAMPLE, tmp_path) == (APPENDIX_B_OUT, 0)
 
 
-@pytest.mark.spim
+@pytest.mark.sim
 def test_quick_start_as_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
                                 capfd: pytest.CaptureFixture[str]) -> None:
     # Spec 2: `c2mips examples/hello_nck.c -o hello_nck.s` then spim (or --run)
@@ -133,11 +133,10 @@ def test_quick_start_as_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     assert quick == "C(10,3) = 120\n"
     out = tmp_path / "hello_nck.s"
     assert main([str(REPO / "examples" / "hello_nck.c"), "-o", str(out)]) == 0
-    assert run_spim(out) == (quick, 0)
-    assert SPIM is not None
-    monkeypatch.setenv("SPIM", SPIM)
+    assert run_sim(out) == (quick, 0)
+    sim = sim_cli(monkeypatch)
     capfd.readouterr()
-    assert main([str(REPO / "examples" / "hello_nck.c"), "-o", str(out), "--run"]) == 0
+    assert main([str(REPO / "examples" / "hello_nck.c"), "-o", str(out), "--run", *sim]) == 0
     assert capfd.readouterr().out == quick
 
 
@@ -150,8 +149,8 @@ def test_readme_examples_exist_and_hello_output_is_right(tmp_path: Path) -> None
     for name in named - {"prog.c"}:
         assert (REPO / "examples" / name).exists(), name
     assert "$ c2mips examples/hello_nck.c --run\nC(10,3) = 120\n" in readme
-    if SPIM is not None:
+    if SIMULATOR is not None:
         asm = tmp_path / "hello.s"
         asm.write_bytes(compile_source((REPO / "examples" / "hello_nck.c").read_text(
             encoding="utf-8"), "hello_nck.c").encode("ascii"))
-        assert run_spim(asm) == ("C(10,3) = 120\n", 0)
+        assert run_sim(asm) == ("C(10,3) = 120\n", 0)

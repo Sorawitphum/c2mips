@@ -13,7 +13,7 @@ from pathlib import Path
 
 import gen
 import pytest
-from conftest import run_gcc, run_spim
+from conftest import run_gcc, run_sim
 
 from c2mips.driver import compile_source
 
@@ -35,7 +35,7 @@ def outputs(prog: gen.Prog, workdir: Path) -> dict[str, tuple[str, int]]:
     for opt in (0, 1):
         asm = workdir / f"prog_O{opt}.s"
         asm.write_bytes(compile_source(src, "prog.c", opt=opt).encode("ascii"))
-        got[f"spim -O{opt}"] = run_spim(asm, timeout=30)
+        got[f"spim -O{opt}"] = run_sim(asm, timeout=30)
     got["gcc"] = run_gcc(c_file, workdir)
     return got
 
@@ -45,7 +45,7 @@ def agree(got: dict[str, tuple[str, int]]) -> bool:
 
 
 @pytest.mark.random
-@pytest.mark.spim
+@pytest.mark.sim
 @pytest.mark.gcc
 def test_three_way_agreement(seed: int, tmp_path: Path) -> None:
     prog = gen.generate(seed)
