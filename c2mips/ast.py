@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from c2mips.tokens import Pos
+
+if TYPE_CHECKING:
+    from c2mips.sema import FuncInfo, Symbol
 
 
 @dataclass
@@ -17,7 +21,7 @@ class IntLit:
 class Var:
     name: str
     pos: Pos
-    resolved: object | None = None  # sema.Symbol (M2)
+    resolved: Symbol | None = None  # filled by sema
 
 
 @dataclass
@@ -25,7 +29,7 @@ class Assign:
     name: str
     value: Expr
     pos: Pos
-    resolved: object | None = None
+    resolved: Symbol | None = None
 
 
 @dataclass
@@ -72,6 +76,7 @@ class Decl:
     pos: Pos
     end: Pos
     item_pos: list[Pos] = field(default_factory=list)
+    symbols: list[Symbol] = field(default_factory=list)  # filled by sema, one per item
 
 
 @dataclass
@@ -112,6 +117,7 @@ class Function:
     body: Block | None  # None = prototype
     pos: Pos  # position of the name
     param_pos: list[Pos] = field(default_factory=list)
+    info: FuncInfo | None = None  # filled by sema
 
 
 @dataclass

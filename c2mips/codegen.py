@@ -155,6 +155,10 @@ class _Codegen:
         self.emit("sw", "$ra", "4($sp)")
         self.emit("sw", "$fp", "0($sp)")
         self.emit("move", "$fp", "$sp")
+        assert f.info is not None, "sema fills FuncInfo"
+        if f.info.n_slots:
+            slots = "  ".join(f"{s.name}@{s.offset}" for s in f.info.symbols)
+            self.emit("addiu", "$sp", "$sp", str(-4 * f.info.n_slots), comment=f"locals: {slots}")
         for s in body.stmts:
             self.stmt(s)
         if not (body.stmts and isinstance(body.stmts[-1], ast.Return)):
@@ -187,7 +191,10 @@ class _Codegen:
             case ast.Printf():
                 self.printf(s)
             case ast.Decl():
-                raise AssertionError("variables are rejected by sema until M2")
+                for (_, init), sym in zip(s.items, s.symbols, strict=True):
+                    if init is not None:  # no initializer: the slot keeps whatever was there
+                        self.expr(init)
+                        self.emit("sw", "$t0", f"{sym.offset}($fp)")
 
     def printf(self, s: ast.Printf) -> None:
         # README 4.5: evaluate every argument (pushed) before printing anything.
@@ -214,6 +221,13 @@ class _Codegen:
         match e:
             case ast.IntLit():
                 self.emit("li", "$t0", str(e.value))
+            case ast.Var():
+                assert e.resolved is not None, "sema resolves every Var"
+                self.emit("lw", "$t0", f"{e.resolved.offset}($fp)")
+            case ast.Assign():
+                assert e.resolved is not None, "sema resolves every Assign"
+                self.expr(e.value)
+                self.emit("sw", "$t0", f"{e.resolved.offset}($fp)")  # value stays in $t0
             case ast.Unary():
                 self.expr(e.operand)
                 if e.op == "-":
@@ -225,7 +239,7 @@ class _Codegen:
                 self.pop_t1()
                 self.binary(e)
             case _:
-                raise AssertionError(f"{type(e).__name__} is rejected by sema in M1")
+                raise AssertionError("calls are rejected by sema until M3")
 
     def binary(self, e: ast.Binary) -> None:
         note = _describe(e)

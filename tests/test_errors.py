@@ -29,3 +29,8 @@ def test_every_lexer_parser_code_has_an_error_test() -> None:
     codes = {p.stem.split("_")[0].upper() for p in ERRORS}
     assert {"E001", "E002", "E003", "E010", "E011", "E025", "E026", "E027", "E030",
             "E031"} <= codes
+
+
+def test_m2_sema_codes_have_error_tests() -> None:
+    codes = {p.stem.split("_")[0].upper() for p in ERRORS}
+    assert {"E020", "E021"} <= codes

@@ -922,8 +922,8 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 - [x] `diagnostics.py` + `errors/*.c` — ระหว่าง M1 sema รายงานตัวแปร (M2) / call (M3) / ฟังก์ชันของผู้ใช้ (M4) เป็น `E030` "not supported yet"
 
 **M2**
-- [ ] `sema.py`: scope stack, Symbol, slot allocation, FuncInfo
-- [ ] Decl/Assign/Var ใน codegen, frame prologue/epilogue
+- [x] `sema.py`: scope stack, Symbol, slot allocation, FuncInfo — scope ของตัวแปรเริ่มทันทีหลัง declarator (C99 §6.2.1p7) และ param อยู่ scope เดียวกับ block นอกสุดของฟังก์ชัน (§6.2.1p4); call (M3) / ฟังก์ชันของผู้ใช้ (M4) ยังเป็น `E030`
+- [x] Decl/Assign/Var ใน codegen, frame prologue/epilogue — ภาคผนวก B (ตัด printf ที่เรียก nCk) ตรงทีละคำสั่ง
 
 **M3**
 - [ ] builtin table `{"nCk": BuiltinFunc(arity=2, label="__rt_nCk")}`

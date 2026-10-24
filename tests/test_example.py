@@ -82,7 +82,35 @@ def test_printf_lowering_like_appendix_b() -> None:
     assert code_only(ours) == code_only(theirs)
 
 
-@pytest.mark.xfail(strict=True, reason="appendix B needs variables (M2) and nCk (M3)")
+def without_nck_printf_c(src: str) -> str:
+    return "".join(ln for ln in src.splitlines(keepends=True) if "nCk(n, k)" not in ln)
+
+
+def without_nck_printf_s(asm: str) -> list[str]:
+    """Appendix B's .text without the `printf("C(...)", n, k, nCk(n, k))` block."""
+    lines = asm.splitlines()
+    text = lines[next(i for i, ln in enumerate(lines) if ln == "        .text"):]
+    i = next(n for n, ln in enumerate(text) if ln.startswith('# printf("C('))
+    j = next(n for n in range(i, len(text)) if text[n] == "        addiu $sp, $sp, 12")
+    return text[:i] + text[j + 1:]
+
+
+def test_appendix_b_without_nck_instruction_for_instruction() -> None:
+    # M2: everything in appendix B except the nCk call (M3) must match, instruction by
+    # instruction (comments are hand-written there, so they are not compared).
+    ours = compile_source(without_nck_printf_c(APPENDIX_B_C), "example.c", runtime=False)
+    text = ours.splitlines()[ours.splitlines().index("        .text"):]
+    assert code_only(text) == code_only(without_nck_printf_s(APPENDIX_B_S))
+
+
+def test_locals_line_identical_to_appendix_b() -> None:
+    ours = compile_source(without_nck_printf_c(APPENDIX_B_C), "example.c", runtime=False)
+    line = "        addiu $sp, $sp, -12         # locals: n@-4  k@-8  a@-12"
+    assert line in APPENDIX_B_S.splitlines()
+    assert line in ours.splitlines()
+
+
+@pytest.mark.xfail(strict=True, reason="appendix B calls nCk (M3)")
 def test_appendix_b_example_instruction_for_instruction() -> None:
     asm = compile_source(APPENDIX_B_C, "example.c", runtime=False)
     assert code_only(asm.splitlines()) == code_only(APPENDIX_B_S.splitlines())
