@@ -1,0 +1,3 @@
+e029_no_main.c:1:1: error[E029]: no 'main' function
+int helper(void);
+^

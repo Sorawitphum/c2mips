@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []  # NFR-7: runtime uses the Python stdlib only
 
+[project.scripts]
+c2mips = "c2mips.__main__:cli"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
@@ -28,7 +31,9 @@ c2mips = ["py.typed", "runtime/*.s"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "spim: needs the spim simulator (skipped when spim is not found)",
+    "sim: needs a simulator: spim, or MARS via $MARS_JAR when spim is missing",
+    "gcc: needs gcc as the differential oracle (skipped when gcc is not found)",
+    "mars: needs java and $MARS_JAR (MARS 4.5 compatibility, Spec 9.2)",
     "random: random differential tests (M6)",
 ]
 

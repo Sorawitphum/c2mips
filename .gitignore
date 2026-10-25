@@ -8,3 +8,5 @@ __pycache__/
 htmlcov/
 build/
 dist/
+/*.s
+tests/random/failures/

@@ -1,0 +1,4 @@
+int main(void) {
+    y = 1;
+    return 0;
+}

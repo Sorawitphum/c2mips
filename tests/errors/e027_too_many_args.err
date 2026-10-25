@@ -1,0 +1,3 @@
+e027_too_many_args.c:2:5: error[E027]: 'printf' format expects 0 arguments, got 1
+    printf("hi\n", 1);
+    ^

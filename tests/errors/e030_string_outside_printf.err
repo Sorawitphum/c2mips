@@ -1,0 +1,3 @@
+e030_string_outside_printf.c:2:12: error[E030]: string literals are only supported as the printf format
+    return "x";
+           ^

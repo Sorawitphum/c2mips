@@ -1,0 +1,3 @@
+e010_missing_operand.c:2:16: error[E010]: expected expression but found ';'
+    return 1 + ;
+               ^

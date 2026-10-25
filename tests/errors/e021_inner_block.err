@@ -1,0 +1,3 @@
+e021_inner_block.c:4:13: error[E021]: redeclaration of 't'
+        int t;
+            ^

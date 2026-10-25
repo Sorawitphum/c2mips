@@ -1,0 +1,3 @@
+e002_unterminated_comment.c:2:15: error[E002]: unterminated comment
+    return 0; /* never closed
+              ^

@@ -1,0 +1,3 @@
+e021_function_redefined.c:2:5: error[E021]: redefinition of 'f'
+int f(void) { return 2; }
+    ^

@@ -1,0 +1,3 @@
+e030_increment.c:3:6: error[E030]: operator '++' is not supported
+    i++;
+     ^

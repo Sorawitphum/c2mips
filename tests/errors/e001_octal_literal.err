@@ -1,0 +1,3 @@
+e001_octal_literal.c:2:12: error[E001]: octal literal '010' is not supported (decimal only)
+    return 010;
+           ^

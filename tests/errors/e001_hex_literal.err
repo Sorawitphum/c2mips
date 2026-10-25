@@ -1,0 +1,3 @@
+e001_hex_literal.c:2:12: error[E001]: invalid integer literal '0x1F' (decimal only)
+    return 0x1F;
+           ^

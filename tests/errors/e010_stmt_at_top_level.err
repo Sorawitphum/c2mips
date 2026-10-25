@@ -1,0 +1,3 @@
+e010_stmt_at_top_level.c:1:1: error[E010]: expected 'int' but found 'return'
+return 0;
+^

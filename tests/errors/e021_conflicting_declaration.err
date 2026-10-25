@@ -1,0 +1,3 @@
+e021_conflicting_declaration.c:2:5: error[E021]: conflicting declaration of 'f' (2 parameters, previously 1)
+int f(int a, int b) { return a + b; }
+    ^

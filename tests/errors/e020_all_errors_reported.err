@@ -1,0 +1,9 @@
+e020_all_errors_reported.c:2:13: error[E020]: undeclared identifier 'b'
+    int a = b;
+            ^
+e020_all_errors_reported.c:3:9: error[E020]: undeclared identifier 'c'
+    a = c + a;
+        ^
+e020_all_errors_reported.c:4:12: error[E020]: undeclared identifier 'd'
+    return d;
+           ^

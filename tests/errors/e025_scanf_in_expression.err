@@ -1,0 +1,3 @@
+e025_scanf_in_expression.c:3:9: error[E025]: 'scanf' can only be used as a statement
+    a = scanf("%d", &b);
+        ^

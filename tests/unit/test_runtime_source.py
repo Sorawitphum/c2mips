@@ -1,4 +1,4 @@
-"""Static checks on runtime.s (README appendix A, §6.6, §6.8, Q20, NFR-6)."""
+"""Static checks on runtime.s (Spec appendix A, §6.6, §6.8, Q20, NFR-6)."""
 
 from __future__ import annotations
 
@@ -18,10 +18,10 @@ def test_runtime_is_ascii() -> None:
     assert all(b <= 0x7F for b in RUNTIME_S.read_bytes())
 
 
-def test_runtime_matches_readme_appendix_a() -> None:
+def test_runtime_matches_spec_appendix_a() -> None:
     # runtime.s is the tested listing from the spec; it must not be rewritten.
-    readme = (REPO / "README.md").read_text(encoding="utf-8")
-    section = readme.split("## ภาคผนวก A", 1)[1]
+    spec = (REPO / "Spec.md").read_text(encoding="utf-8")
+    section = spec.split("## ภาคผนวก A", 1)[1]
     listing = section.split("```asm\n", 1)[1].split("```", 1)[0]
     assert RUNTIME_S.read_text(encoding="ascii") == listing
 
@@ -33,7 +33,7 @@ def test_runtime_never_touches_stack_or_saved_regs() -> None:
 
 
 def test_runtime_labels_are_namespaced() -> None:
-    # README §6.5: compiler-internal names never start with f_ ; runtime uses __rt_.
+    # Spec §6.5: compiler-internal names never start with f_ ; runtime uses __rt_.
     labels = [m.group(1) for ln in code_lines() if (m := re.match(r"^(\w+):", ln))]
     assert labels
     assert all(lb.startswith("__rt_") for lb in labels)
