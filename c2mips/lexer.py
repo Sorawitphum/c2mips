@@ -10,14 +10,21 @@ from c2mips.tokens import KEYWORDS, PUNCTUATORS, Pos, Token, TokKind
 INT_MAX = 2**31 - 1
 ESCAPES = {"n": "\n", "t": "\t", "\\": "\\", '"': '"'}
 
-_INCLUDE_OK = re.compile(r'#\s*include\s*(<stdio\.h>|"c2mips\.h")\s*(//.*)?$')
+# nexys_a7.h: FPGA Studio's board header, skipped like the others (ADR-010)
+_INCLUDE_OK = re.compile(r'#\s*include\s*(<stdio\.h>|"c2mips\.h"|"nexys_a7\.h")\s*(//.*)?$')
 _INCLUDE = re.compile(r"#\s*include\s*(.*?)\s*$")
 _DIRECTIVE = re.compile(r"#\s*(\w*)")
+_DEFINE = re.compile(r"#\s*define\b")
 _WORD = re.compile(r"[A-Za-z0-9_]*")
+_HEX = re.compile(r"0[xX][0-9A-Fa-f]+")
+UINT32_MAX = 2**32 - 1
+
+# name -> (replacement tokens, line of the #define)
+Macros = dict[str, tuple[list[Token], int]]
 
 
 def lex(src: str, file: str) -> list[Token]:
-    return _Lexer(src.replace("\r\n", "\n"), file).run()
+    return _Lexer(src.replace("\r\n", "\n"), file, {}).run()
 
 
 def _char_name(c: str) -> str:
@@ -25,13 +32,14 @@ def _char_name(c: str) -> str:
 
 
 class _Lexer:
-    def __init__(self, src: str, file: str) -> None:
+    def __init__(self, src: str, file: str, macros: Macros) -> None:
         self.src = src
         self.file = file
         self.i = 0
         self.line = 1
         self.line_start = 0
         self.toks: list[Token] = []
+        self.macros = macros
 
     def pos(self, i: int | None = None) -> Pos:
         i = self.i if i is None else i
@@ -42,9 +50,11 @@ class _Lexer:
         self.line += 1
         self.line_start = i + 1
 
-    def run(self) -> list[Token]:
+    def run(self, stop: int | None = None) -> list[Token]:
+        """Tokens up to src[stop] (default: the end), then EOF."""
         src = self.src
-        while self.i < len(src):
+        limit = len(src) if stop is None else stop
+        while self.i < limit:
             c = src[self.i]
             if c == "\n":
                 self.newline(self.i)
@@ -65,7 +75,12 @@ class _Lexer:
                 assert word is not None
                 text = word.group()
                 kind = KEYWORDS.get(text, TokKind.IDENT)
-                self.add(kind, text, text if kind is TokKind.IDENT else None)
+                if kind is TokKind.IDENT and text in self.macros:
+                    use = self.pos()
+                    self.toks += self.expand(text, use, [])
+                    self.i += len(text)
+                else:
+                    self.add(kind, text, text if kind is TokKind.IDENT else None)
             elif c == '"':
                 self.string()
             else:
@@ -102,6 +117,9 @@ class _Lexer:
         if _INCLUDE_OK.match(text):
             self.i = end
             return
+        if _DEFINE.match(text):
+            self.define(pos, end)
+            return
         if inc := _INCLUDE.match(text):
             raise error("E031", f'unsupported #include {inc.group(1)} '
                                 f'(only <stdio.h> and "c2mips.h")', pos)
@@ -109,11 +127,57 @@ class _Lexer:
         assert word is not None
         raise error("E031", f"unsupported preprocessor directive '#{word.group(1)}'", pos)
 
+    def define(self, pos: Pos, end: int) -> None:
+        """ADR-010: `#define NAME replacement`, object-like only."""
+        m = re.compile(r"#\s*define[ \t]+([A-Za-z_]\w*)").match(self.src, self.i)
+        if m is None:
+            raise error("E031", "'#define' needs a macro name", pos)
+        name = m.group(1)
+        if self.src.startswith("(", m.end()):
+            raise error("E031", "function-like macros are not supported "
+                                "(only #define NAME replacement)", pos)
+        if name in KEYWORDS:
+            raise error("E033", f"'{name}' is a keyword and cannot be a macro name", pos)
+        sub = _Lexer(self.src, self.file, {})  # the replacement is not expanded until it is used
+        sub.i, sub.line, sub.line_start = m.end(), self.line, self.line_start
+        repl = sub.run(stop=end)[:-1]
+        if name in self.macros:
+            old, line = self.macros[name]
+            if [(t.kind, t.text) for t in old] != [(t.kind, t.text) for t in repl]:
+                raise error("E033", f"macro '{name}' redefined with a different value "
+                                    f"(first #define at line {line})", pos)
+        else:
+            self.macros[name] = (repl, self.line)
+        self.i = end
+
+    def expand(self, name: str, use: Pos, active: list[str]) -> list[Token]:
+        """Replacement tokens of macro `name`, at the position where it is used."""
+        repl, line = self.macros[name]
+        via = Pos(use.file, use.line, use.col, f"{name} at line {line}")
+        out: list[Token] = []
+        for t in repl:
+            if t.kind is TokKind.IDENT and t.text in self.macros:
+                if t.text == name or t.text in active:
+                    raise error("E033", f"macro '{t.text}' refers to itself", via)
+                out += self.expand(t.text, use, [*active, name])
+            else:
+                out.append(Token(t.kind, t.text, t.value, via))
+        return out
+
     def number(self) -> None:
         word = _WORD.match(self.src, self.i)
         assert word is not None
         text = word.group()
         pos = self.pos()
+        if text[:2] in ("0x", "0X"):
+            # ADR-010: hex; above INT_MAX only as an MMIO address (the parser checks that)
+            if not _HEX.fullmatch(text):
+                raise error("E001", f"invalid hex literal '{text}'", pos)
+            value = int(text, 16)
+            if value > UINT32_MAX:
+                raise error("E003", f"integer literal {text} out of range (max 0xFFFFFFFF)", pos)
+            self.add(TokKind.NUMBER, text, value)
+            return
         if not text.isdigit():
             raise error("E001", f"invalid integer literal '{text}' (decimal only)", pos)
         if len(text) > 1 and text[0] == "0":

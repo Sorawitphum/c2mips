@@ -160,3 +160,24 @@ def test_scanf_statement() -> None:
 def test_scanf_other_forms_are_e030(src: str) -> None:
     assert error(f"int main(void) {{ int x, y; {src} }}") == (
         "E030", "only 'scanf(\"%d\", &x);' is supported")
+
+
+@pytest.mark.parametrize(("src", "tree"), [
+    # ADR-010: MMIO as rvalue and lvalue, also in parentheses as the IDE's macros write it
+    ("int s = *(volatile int*)0xF0000004;", "(decl (s (mmio 0xf0000004)))"),
+    ("*(volatile int *) 0xF0000000 = 1 + 2;", "(expr (mmio= 0xf0000000 (+ 1 2)))"),
+    ("(*(volatile int*)0xF0000008) = (*(volatile int*)0xF0000004);",
+     "(expr (mmio= 0xf0000008 (mmio 0xf0000004)))"),
+    ("return 3 * *(volatile int*)16;", "(return (* 3 (mmio 0x00000010)))"),
+])
+def test_mmio(src: str, tree: str) -> None:
+    assert body(src) == tree
+
+
+@pytest.mark.parametrize(("src", "code"), [
+    ("return *(int*)0xF0000000;", "E030"), ("return *(volatile int*)x;", "E030"),
+    ("return *x;", "E030"), ("return *(volatile int*)0xF0000001;", "E034"),
+    ("return 0xF0000000;", "E003"),
+])
+def test_mmio_errors(src: str, code: str) -> None:
+    assert error(f"int main(void) {{ int x; {src} }}")[0] == code

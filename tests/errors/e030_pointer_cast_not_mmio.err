@@ -1,0 +1,3 @@
+e030_pointer_cast_not_mmio.c:2:12: error[E030]: pointers are not supported (only *(volatile int*)ADDRESS for memory-mapped I/O)
+    return *(int*)0xF0000000;
+           ^

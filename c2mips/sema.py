@@ -60,9 +60,9 @@ class BuiltinFunc:
 BUILTINS = {"nCk": BuiltinFunc("nCk", 2, "__rt_nCk", "int nCk(int n, int k)")}
 
 
-def analyze(prog: ast.Program) -> ast.Program:
+def analyze(prog: ast.Program, target: str = "spim") -> ast.Program:
     """Raises CompileError if there is any error; warnings end up in prog.warnings."""
-    _Sema().program(prog)
+    _Sema(target).program(prog)
     return prog
 
 
@@ -84,7 +84,8 @@ def always_returns(s: ast.Stmt) -> bool:
 
 
 class _Sema:
-    def __init__(self) -> None:
+    def __init__(self, target: str = "spim") -> None:
+        self.target = target
         self.diags: list[Diagnostic] = []
         self.scopes: list[dict[str, Symbol]] = []
         self.slots: list[Symbol] = []
@@ -230,9 +231,15 @@ class _Sema:
             case ast.Return() | ast.ExprStmt():
                 self.expr(s.expr)
             case ast.Printf():
+                if self.target == "fpga":  # ADR-009: no OS, no stdout
+                    self.error("E032", "'printf' is not available on --target fpga; "
+                                       "write to SEG7/LED instead", s.pos)
                 for a in s.args:
                     self.expr(a)
             case ast.Scanf():
+                if self.target == "fpga":
+                    self.error("E032", "'scanf' is not available on --target fpga; "
+                                       "read SWITCH instead", s.pos)
                 s.resolved = self.lookup(s.name, s.name_pos)
             case ast.If():
                 self.expr(s.cond)
@@ -267,6 +274,10 @@ class _Sema:
                 self.expr(e.value)
             case ast.Call():
                 self.call(e)
+            case ast.MmioLoad():
+                pass
+            case ast.MmioStore():
+                self.expr(e.value)
             case ast.Unary():
                 self.expr(e.operand)
             case ast.Binary():

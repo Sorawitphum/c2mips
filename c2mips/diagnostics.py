@@ -19,8 +19,9 @@ class Diagnostic:
         # Keep tabs so the caret lines up under the same column in a terminal.
         pad = "".join("\t" if c == "\t" else " " for c in text[:self.pos.col - 1])
         kind = "warning" if self.code.startswith("W") else "error"
+        via = f" (from #define {self.pos.via})" if self.pos.via else ""
         return (f"{self.pos.file}:{self.pos.line}:{self.pos.col}: {kind}[{self.code}]: "
-                f"{self.message}\n{text}\n{pad}^\n")
+                f"{self.message}{via}\n{text}\n{pad}^\n")
 
 
 class CompileError(Exception):

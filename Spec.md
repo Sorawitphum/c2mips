@@ -145,7 +145,8 @@ Exit code ของ `c2mips`: `0` สำเร็จ · `1` compile error · `2`
 - Integer literal: ฐานสิบเท่านั้น; ค่า > 2147483647 → `E003` (รวมถึง `-2147483648` — ให้เขียน `-2147483647 - 1`)
 - String literal: ใช้ได้เฉพาะใน `printf`; escape ที่รองรับ `\n \t \\ \"`; ข้อความไทย/UTF-8 ได้ (emit เป็น `.byte`)
 - Comment: `//` และ `/* */`
-- บรรทัด `#include <stdio.h>` และ `#include "c2mips.h"` → ข้าม; `#` อื่นทั้งหมด → `E031`
+- บรรทัด `#include <stdio.h>`, `#include "c2mips.h"` และ `#include "nexys_a7.h"` → ข้าม; `#define NAME replacement` แบบไม่มี argument → แทนที่ระดับ token (§4.6, ADR-010); `#` อื่นทั้งหมด → `E031`
+- Hex literal `0x...` (ADR-010): ค่าเกิน 2147483647 ใช้ได้เฉพาะเป็นที่อยู่ MMIO (§4.6) นอกนั้น `E003`; ตัวเลขฐานสิบที่เกินยังเป็น `E003` ใน lexer เหมือนเดิม
 
 ### 4.2 Grammar (EBNF)
 
@@ -169,14 +170,15 @@ declarator  = IDENT [ "=" expr ] ;
 printf_stmt = "printf" "(" STRING { "," expr } ")" ";" ;
 scanf_stmt  = "scanf" "(" "\"%d\"" "," "&" IDENT ")" ";" ;           (* M6, FR-10; เป็น stmt เหมือน printf *)
 expr        = assign ;
-assign      = IDENT "=" assign | logic_or ;                       (* right-assoc *)
+assign      = IDENT "=" assign | mmio "=" assign | logic_or ;     (* right-assoc; mmio: ADR-010 *)
 logic_or    = logic_and { "||" logic_and } ;                      (* M4 *)
 logic_and   = equality  { "&&" equality } ;                       (* M4 *)
 equality    = relational { ( "==" | "!=" ) relational } ;         (* M4 *)
 relational  = additive { ( "<" | "<=" | ">" | ">=" ) additive } ; (* M4 *)
 additive    = term  { ( "+" | "-" ) term } ;                      (* left-assoc *)
 term        = unary { ( "*" | "/" | "%" ) unary } ;               (* "%" = M4 *)
-unary       = ( "-" | "+" | "!" ) unary | primary ;               (* "!" = M4 *)
+unary       = ( "-" | "+" | "!" ) unary | mmio | primary ;        (* "!" = M4 *)
+mmio        = "*" "(" "volatile" "int" "*" ")" INT ;               (* ADR-010; ในวงเล็บได้ *)
 primary     = INT | IDENT | call | "(" expr ")" ;
 call        = IDENT "(" [ expr { "," expr } ] ")" ;
 ```
@@ -227,6 +229,16 @@ Parser ใช้ recursive descent หนึ่งฟังก์ชันต่
 - แปลงตอน compile เป็น syscall `4` (print_string) และ `1` (print_int)
 - **ประเมิน argument ทั้งหมดก่อนพิมพ์อะไรออกไป** (push ลง stack ก่อน) — รักษาความหมายของ C
 - ใช้เป็น statement เท่านั้น (ไม่รองรับค่าที่ `printf` คืน)
+
+### 4.6 `#define`, hex และ MMIO (ADR-010)
+
+- `#define NAME replacement` — object-like เท่านั้น แทนที่ใน lexer ระดับ token ตั้งแต่บรรทัดถัดไป; replacement ว่างได้ ·
+  นิยามซ้ำค่าเดิมได้, ต่างค่า / อ้างถึงตัวเอง (ตรงหรืออ้อม) / ชื่อเป็น keyword → `E033` · macro มี argument, `#undef`, `#if` → `E031` ·
+  error จาก token ที่มาจาก macro ชี้ **ตำแหน่งที่ใช้** และต่อท้าย `(from #define NAME at line N)`
+- MMIO: รูป `*(volatile int*)ADDR` เท่านั้น (ADDR เป็นค่าคงที่ หารด้วย 4 ลงตัว ไม่งั้น `E034`, ≤ `0xFFFFFFFF`) — อ่าน = `lw`, เขียน (`X = e`) = `sw`
+  และค่าของ assignment คือค่าที่เขียน · `volatile`: ทุกการอ้างอิงเกิด load/store จริงตามลำดับ (fold ไม่ตัด ไม่รวม ไม่ย้าย) ·
+  pointer อื่นทั้งหมดยังเป็น `E030`
+- ใช้ได้ทั้งสอง target; บน `spim` จะเกิด address exception ตอนรันเพราะ `0xF0000000` เป็น kernel space ของ SPIM (ADR-010 Q4)
 
 ---
 
@@ -311,7 +323,9 @@ c2mips/
 │   ├── sema.py     fold.py
 │   ├── codegen.py  emitter.py
 │   ├── cvalue.py                 # reference evaluator (wrap32, trunc div, nCk) — ใช้โดย fold + tests
+│   ├── fpga.py                   # --target fpga: lowering, delay slot, whitelist (ADR-009)
 │   └── runtime/runtime.s         # __rt_nCk, __rt_div0, __rt_panic
+│       runtime/runtime_fpga.s    # runtime เดียวกันสำหรับ openmips (ADR-009)
 ├── ref/nck_ref.c                 # nCk ภาษา C สำหรับ differential test บน host
 ├── examples/
 ├── tests/
@@ -485,6 +499,33 @@ main:   jal   f_main
 
 **สัญญา:** `-O0` และ `-O1` ต้องให้ stdout + exit code เหมือนกันทุกโปรแกรม (property test) — ✅ ทุก golden, ทุก example, และ expression สุ่มเทียบ `cvalue.py` ทั้งสองระดับ
 
+### 6.10 Target `fpga` (openmips / FPGA Studio, ADR-009)
+
+`--target fpga` ใช้ calling convention และ frame ของ §6.2 ทุกอย่าง ต่างแค่ output:
+
+```asm
+_start:                                  # PC 0x0000
+        lui   $sp, 0x8001                # stack below 0x80010000
+        jal   f_main
+        nop                              # delay slot
+        lui   $t0, 0xF000
+        sw    $v0, 8($t0)                # SEG7 = return value of main
+_halt:
+        j     _halt
+        nop
+```
+
+- คำสั่งจริงเท่านั้น: `li` → `addiu r, $zero, v` / `lui` + `ori` · `move` → `addu a, b, $zero` · `b` → `beq $zero, $zero, L` ·
+  ไม่มี `la` `syscall` `.data` `.asciiz` `.byte` · ไม่ใช้ `$at`
+- `nop` หลัง branch/jump ทุกตัว (delay slot) · ถือว่าไม่มี load delay slot และ HI/LO มี interlock
+- output มีแค่ label และคำสั่ง (ไม่มี directive / comment) และ emitter ตรวจทุกบรรทัดกับ whitelist:
+  `addu addiu subu and andi or ori xor xori nor slt slti sltu sltiu sll srl sra lui lw sw beq bne bltz bgez blez bgtz j jal jr mult multu div divu mfhi mflo nop`
+- `printf` / `scanf` → `E032`
+- runtime: `runtime/runtime_fpga.s` (อัลกอริทึม nCk เดียวกับภาคผนวก A) แนบเฉพาะ routine ที่ใช้ · panic เขียน SEG7 แล้ววนที่ `_panic`:
+  `0xDEAD0001` = หาร 0 (`/`, `%`), `0xDEAD0002` = nCk ล้น
+- MMIO (§4.6): `lui $t2, hi` (+ `ori $t2, $t2, lo`) แล้ว `lw`/`sw` offset 0 · `-O1`: lo16 อยู่ใน offset (ADR-010 Q5)
+- ทดสอบใน CI ด้วย `tests/fpga_sim.py` (assemble เป็นรหัสเครื่องจริง แล้วรันแบบมี delay slot + MMIO) — ไม่มี IDE ใน CI
+
 ---
 
 ## 7. Architecture Decision Records
@@ -604,6 +645,131 @@ main:   jal   f_main
 
 **Decision:** B · ใช้ `__rt_div0` เดิม (ไม่แตะ `runtime.s`) · `x % -1 == 0` คู่กับ `x / -1 == -x` (ADR-006) ทำให้ `(a/b)*b + a%b == a` จริงทุกค่า รวม `INT_MIN`
 **Consequences:** golden `mod_by_zero` / `mod_int_min_minus_one` ติด `// no-gcc-oracle:` เพราะ gcc เป็น UB (x86 trap); `-O1` (M5) ตัด guard ได้เมื่อตัวหารเป็นค่าคงที่เหมือน `/`
+
+### ADR-009: target `fpga` (openmips / FPGA Studio / Nexys A7)
+
+**Status:** Accepted — ผู้ใช้อนุมัติค่าเริ่มต้นของ Q1–Q5 (2026-10-28) · **Date:** 2026-10-28
+
+**Context:** ผู้ใช้จะใช้ c2mips เป็น "custom compiler" ใน FPGA Studio (IDE บน Windows) กับ CPU `openmips` (5-stage pipeline) บนบอร์ด Nexys A7 ข้อเท็จจริงด้านล่าง **ได้จากผู้ใช้และการสังเกต IDE** ยังไม่ได้ทดสอบใน CI (Spec §13 S24–S30):
+
+- IDE เรียก `<compiler> <path>\fpga_studio_temp_src.c` (ส่ง path ไฟล์ต้นทางอย่างเดียว, cwd = โฟลเดอร์ IDE) แล้ว assemble ด้วย assembler ของตัวเอง; ยังไม่รู้ว่าอ่าน asm จาก stdout หรือจากไฟล์ `<src>.s`
+- โค้ดเริ่มที่ PC `0x0000`; stack ใกล้ `0x80010000`
+- **มี branch delay slot**: คำสั่งถัดจาก branch/jump ถูกทำเสมอ (mips-gcc ของ IDE: `jal` ที่ `0x0004` ตั้ง `$ra = 0x000C` และมี `nop` หลังทุก branch)
+- assembler ของ IDE แปลงคำสั่งที่ไม่รู้จักเป็น `0x00000000` **แบบเงียบ ๆ** — ที่พบว่าไม่รู้จัก: `b`, `la`, `syscall` (และน่าจะไม่โหลด `.data`); ที่รู้จักแน่: `addiu addu subu slt lw sw lui jal jr beq bne bltz divu multu mfhi mflo`, `li`/`move` ค่าเล็ก
+- ไม่มีระบบปฏิบัติการ: ไม่มี syscall ไม่มี stdout; โปรแกรมจบด้วยการวนค้าง
+- I/O แบบ memory-mapped (word): `LED = 0xF0000000` (เขียน), `SWITCH = 0xF0000004` (อ่าน), `SEG7 = 0xF0000008` (เขียน)
+
+ทุกอย่างของ target `spim` (ค่าเริ่มต้น) **คงเดิมทุกไบต์** — target นี้เป็น output แบบที่สองที่เลือกด้วย `--target fpga`
+
+| Option | ข้อดี | ข้อเสีย |
+|---|---|---|
+| A: ใช้ output ของ SPIM ตรง ๆ | ไม่ต้องทำอะไร | `la`/`syscall`/`b`/`.data` กลายเป็น `0x00000000`; ไม่มี delay slot → ผลผิดเงียบ ๆ |
+| B: แปลง output ของ SPIM ทีหลัง (post-processor) | codegen ไม่เปลี่ยน | printf/syscall แปลงไม่ได้; ต้อง parse asm อีกรอบ; ตรวจ whitelist ยาก |
+| **C: target ที่สองใน codegen/emitter** | ควบคุมทุกคำสั่ง, ตรวจ whitelist ตอน emit, runtime แยกไฟล์ | โค้ดสองทางใน emitter (แยกด้วย `target`) |
+
+**Decision:** C — รายละเอียด:
+
+1. **CLI:** `--target spim|fpga` (ค่าเริ่มต้น `spim`) ใช้ร่วมกับ `-O0`/`-O1` ได้; `--run` ใช้กับ `fpga` ไม่ได้ (ไม่มี simulator ของบอร์ด) → exit 2
+2. **ชุดคำสั่ง:** emit เฉพาะ mnemonic ใน whitelist นี้ — `addu addiu subu and andi or ori xor xori nor slt slti sltu sltiu sll srl sra lui lw sw beq bne bltz bgez blez bgtz j jal jr mult multu div divu mfhi mflo nop` — emitter ตรวจทุกบรรทัด ถ้าเจอนอก whitelist = **error ภายใน (assert)** ไม่ปล่อยออกไปให้ IDE แปลงเป็น 0 เงียบ ๆ · ไม่ใช้ pseudo-instruction ใด ๆ แม้ IDE รู้จักบางตัว:
+   - `li r, v` → `addiu r, $zero, v` ถ้า v อยู่ใน int16 ไม่งั้น `lui r, hi16` + `ori r, r, lo16` (ไม่มี `ori` ถ้า lo16 = 0)
+   - `move a, b` → `addu a, b, $zero`
+   - `b L` → `beq $zero, $zero, L`
+   - ไม่มี `la`, `syscall`, `.data`, `.asciiz`, `.byte`
+   - **ไม่ใช้ `$at`** (ยังไม่รู้ว่า assembler ของ IDE จองไว้หรือไม่)
+3. **Delay slot:** ใส่ `nop` หลัง branch/jump ทุกตัว (`beq bne bltz bgez blez bgtz j jal jr`) — ยังไม่เติมคำสั่งที่มีประโยชน์ลงช่อง (ทำทีหลังได้โดยไม่เปลี่ยน ADR นี้) · ถือว่า **ไม่มี load delay slot** และ HI/LO มี interlock (เป็น MIPS32; openmips stall ตอน div) — ถ้าผิด ต้องแก้ ADR นี้
+4. **Startup** (ตาม mips-gcc ของ IDE แต่เรียก `f_main` ตาม Spec §6.5 และส่งค่าที่ `main` คืนไป SEG7):
+
+   ```asm
+   _start:
+           lui   $sp, 0x8001
+           jal   f_main
+           nop
+           lui   $t0, 0xF000
+           sw    $v0, 8($t0)            # SEG7 = return value of main
+   _halt:
+           j     _halt
+           nop
+   ```
+
+5. **Calling convention / frame:** เหมือน Spec §6.2 ทุกอย่าง (`$a0–$a3`, `$v0`, `$fp`, slot `-4*(i+1)($fp)`) — ต่างแค่ template ตามข้อ 2–3
+6. **printf / scanf:** compile error ใหม่ `E032` — `'printf' is not available on --target fpga; write to SEG7/LED instead` (`scanf` ทำนองเดียวกัน; อ่าน SWITCH แทน)
+7. **Runtime error** (หาร 0, `%` 0, nCk ล้น): เขียนรหัสลง SEG7 แล้ววนค้างที่ `_panic` — `0xDEAD0001` = หาร 0 (รวม `%` 0 ตาม ADR-008), `0xDEAD0002` = nCk ล้น
+8. **Runtime:** ไฟล์ใหม่ `c2mips/runtime/runtime_fpga.s` (ห้ามแตะ `runtime.s`) — อัลกอริทึม nCk เหมือนเดิมทุกขั้น ต่างแค่ (ก) `nop` หลังทุก branch/jump (ข) แทน pseudo ตามข้อ 2 (ค) panic ตามข้อ 7 · แนบเฉพาะเมื่อโปรแกรมใช้ `nCk` / `/` / `%` และ **แนบเฉพาะ routine ที่ใช้** (`__rt_nCk`, `__rt_div0`, `__rt_panic`)
+9. **ค่าที่ `main` คืน:** `$v0` ตอน `f_main` return → SEG7 แล้ว `_halt` (main ที่ไม่มี `return` คืน 0 ตาม C99 → SEG7 = 0); โปรแกรม `while (1)` ไม่ถึง `_halt`
+10. **ข้อความใน output:** ดูคำถามที่ยังเปิด ข้อ Q3
+
+**Consequences:**
+- test บน CI ใช้ตัวจำลองใน Python (`tests/fpga_sim.py`) ที่จำลอง delay slot และ MMIO + ตรวจ encoding ด้วย GNU as (ถ้ามี) — ไม่มี IDE จริงใน CI
+- คำสั่งที่ **ไม่อยู่ในชุดที่ยืนยันแล้ว** แต่อยู่ใน whitelist (`div mult ori sltu sltiu xori and or ...` และ `nop`/`j`) ยังต้องยืนยันบน IDE จริง — อยู่ใน checklist ท้ายงาน
+- ขนาด RAM ของบอร์ดยังไม่รู้ → ความลึกของ recursion ที่ใช้ได้จริงยังไม่รู้
+
+**คำถามที่ตัดสินแล้ว (ใช้ค่าเริ่มต้นทั้งหมด):**
+- **Q2 — SEG7 ตอนจบ:** ค่าที่ `main` คืน **เขียนทับ** ค่าที่โปรแกรมเขียน SEG7 เองไว้เสมอ (เช่น `SEG7 = 42; return 0;` → บอร์ดแสดง 0) · ค่าเริ่มต้น: เขียนทับเสมอ ตามที่สั่ง (โปรแกรมที่อยากโชว์ค่าเองให้ `return` ค่านั้น หรือวน `while (1)`)
+- **Q3 — directive และ comment:** ยังไม่รู้ว่า assembler ของ IDE รับ `.text` / `.globl` / comment `#` หรือไม่ (ถ้าไม่รับอาจกลายเป็น `0x00000000`) · ค่าเริ่มต้น: output ของ `fpga` มีแค่ label กับคำสั่ง — **ไม่มี directive และไม่มี comment**; register ใช้ชื่อ (`$t0`) แบบที่ mips-gcc ของ IDE ใช้
+
+### ADR-010: `#define` แบบง่าย + MMIO `*(volatile int*)CONST`
+
+**Status:** Accepted — ผู้ใช้อนุมัติค่าเริ่มต้นของ Q1–Q5 (2026-10-28) · **Date:** 2026-10-28
+
+**Context:** โปรแกรมตัวอย่างของ FPGA Studio (ADR-009) เขียน I/O แบบนี้ ซึ่ง MiniC ปัจจุบันปฏิเสธทั้งหมด (`#define` → `E031`, `0x...` → `E001`, `volatile` / `*` / cast → `E030`):
+
+```c
+#define LED     (*(volatile int*)0xF0000000)
+#define SWITCH  (*(volatile int*)0xF0000004)
+#define SEG7    (*(volatile int*)0xF0000008)
+
+int main() {
+    while (1) {
+        int sw = SWITCH;
+        int result = sw + 1;
+        LED = result;
+        SEG7 = result;
+    }
+}
+```
+
+กฎเหล็กของ Spec §4 ยังอยู่: **ทุกโปรแกรมที่ c2mips รับต้องเป็น C99 ที่ gcc คอมไพล์ได้** — ส่วนเพิ่มนี้จึงเป็นชุดย่อยของ C เท่านั้น
+
+| Option | ข้อดี | ข้อเสีย |
+|---|---|---|
+| A: preprocessor เต็ม (เรียก `cpp` ภายนอก) | รองรับทุกอย่าง | ต้องมี gcc/cpp ตอนคอมไพล์ (ผิด NFR-7), ตำแหน่ง error เพี้ยน |
+| **B: `#define` แบบ object-like ใน lexer + MMIO รูปเดียว** | เล็ก, ตำแหน่ง error ชี้ถูก, ไม่ต้องมีเครื่องมือภายนอก | ไม่มี macro มี argument / `#if` |
+| C: builtin `LED`/`SWITCH`/`SEG7` ในคอมไพเลอร์ | ง่ายที่สุด | gcc คอมไพล์ไม่ได้ถ้าไม่มี header; ไม่ใช่โค้ดแบบที่ IDE ให้มา |
+
+**Decision:** B — ใช้ได้ทั้งสอง target แต่ MMIO มีความหมายจริงเฉพาะ `fpga`
+
+**1. `#define`** (แทนที่ระดับ token ใน lexer)
+- รับเฉพาะ `#define NAME replacement` แบบ object-like: replacement คือ token ที่เหลือทั้งบรรทัด (ว่างได้); ไม่มี line continuation `\`
+- **ไม่รับ:** macro มี argument (`#define F(x) ...`), `#undef`, `#if`/`#ifdef`/…, `#` / `##` → `E031` เหมือนเดิม
+- นิยามซ้ำด้วยค่า **เดียวกัน** (token เหมือนกัน) = ได้ (เหมือน C); ค่าต่างกัน = error `E033`
+- macro ที่อ้างถึงตัวเอง ตรงหรืออ้อม (`A → B → A`) = error `E033` (เข้มกว่า C ซึ่งแค่ไม่ขยายซ้ำ — โปรแกรมที่ผ่านยังเป็น C ที่ถูกต้อง)
+- ชื่อ macro เป็น keyword ไม่ได้ (`E033`); ใช้ก่อน `#define` ไม่ถูกแทน (เหมือน C)
+- error ที่เกิดจาก token ที่มาจาก macro: รายงาน **ตำแหน่งที่ใช้ macro** และต่อท้ายข้อความว่า `(from #define NAME at line N)`
+- `#include "nexys_a7.h"` → ข้ามเหมือน `#include` อื่นที่รับไว้แล้ว
+
+**2. Hex literal** — `0x...` / `0X...` ใช้ได้ทุก target (Q1) · ค่าที่เกิน `INT_MAX` ใช้ได้ **เฉพาะ** ในรูป MMIO และ **ต้องเขียนเป็น hex** (บิตแพตเทิร์นของที่อยู่ 32 บิต, ≤ `0xFFFFFFFF`) นอกนั้นเป็น `E003` · ตัวเลขฐานสิบที่เกิน `INT_MAX` ยังเป็น `E003` ใน lexer เหมือนเดิมทุกตัวอักษร (พฤติกรรมเดิมไม่เปลี่ยน) · octal (`010`) ยังเป็น `E001` เหมือนเดิม
+
+**3. MMIO** — รับ **เฉพาะ** รูป `*(volatile int*)INTCONST` และ `*(volatile int *)INTCONST` (เว้นวรรคได้, อยู่ในวงเล็บได้อย่างที่ macro ข้างบนทำ)
+- **rvalue:** `int s = SWITCH;` → `lw` · **lvalue:** `LED = expr;` → `sw` (ค่าของ assignment คือค่าที่เขียน เหมือน assignment ปกติ)
+- address ต้องหารด้วย 4 ลงตัว ไม่งั้น `E034`
+- pointer ทั่วไป (`int *p`, `&x`, cast อื่น, `volatile` นอกรูปนี้) → `E030` เหมือนเดิม
+- codegen: `lui $t2, hi16` (+ `ori $t2, $t2, lo16` ถ้า lo16 ≠ 0) แล้ว `lw $t0, 0($t2)` / `sw $t0, 0($t2)` — `$t2` เป็น scratch อยู่แล้วตาม Spec §6.1
+- **`volatile`:** ทุกการอ้างอิงต้องเกิด load/store จริงตามลำดับในโค้ด — fold ห้ามตัด ห้ามรวม ห้ามย้ายลำดับ (`SWITCH + SWITCH` = อ่านสองครั้ง; `x * 0` ที่ x มาจาก SWITCH ยังอ่าน) · MMIO ไม่นับเป็น leaf ใน -O1 (§6.9 ข้อ 5–6) จึงไม่ถูกเลื่อนไปอ่านช้า
+
+**รหัส error ใหม่** (ADR-009 + ADR-010):
+
+| รหัส | Stage | ความหมาย |
+|---|---|---|
+| E032 | sema | `printf` / `scanf` ใช้ไม่ได้บน `--target fpga` |
+| E033 | lexer | `#define` นิยามซ้ำต่างค่า / อ้างถึงตัวเอง / ชื่อเป็น keyword |
+| E034 | parser | ที่อยู่ MMIO หารด้วย 4 ไม่ลงตัว หรือเกิน `0xFFFFFFFF` |
+
+**Consequences:** เพิ่ม golden ที่ใช้ `#define` / hex / MMIO; ตัวอย่างที่ 1 ของ IDE กลายเป็น golden asm `tests/golden/fpga_switch_to_led.s`; differential กับ gcc ยังใช้ได้กับโปรแกรมที่ใช้ `#define`/hex (gcc ทำ preprocessing เอง) แต่ไม่ได้กับโปรแกรมที่แตะ MMIO (บน host เป็น address ที่เขียนไม่ได้) → ติด `// no-gcc-oracle:`
+
+**คำถามที่ตัดสินแล้ว (ใช้ค่าเริ่มต้นทั้งหมด):**
+- **Q1 — hex ขัดกับ test เดิม:** golden `tests/errors/e001_hex_literal` (มีมาตั้งแต่ M1) คาดว่า `return 0x1F;` เป็น error `E001` แต่งานนี้ให้เพิ่ม hex ใน lexer **และ** สั่งว่า test เดิมทุกตัวต้องผ่านเหมือนเดิม — ทำทั้งสองอย่างพร้อมกันไม่ได้ · ค่าเริ่มต้น: hex ใช้ได้ **ทุก target** (เป็น C99 ที่ถูกต้อง) และเปลี่ยน golden นั้นเป็น hex ที่ผิดรูป (`0x`, `0x1G` → `E001`) พร้อมเพิ่ม golden ที่ `return 0x1F;` ได้ 31 · ทางเลือก: hex ใช้ได้เฉพาะ `--target fpga` (test เดิมไม่เปลี่ยน แต่โปรแกรมเดียวกันได้ผลต่างกันตาม target)
+- **Q4 — MMIO บน `--target spim`:** "ใช้ได้ทั้งสอง target" อ่านได้สองแบบ · ค่าเริ่มต้น: คอมไพล์ได้ทั้งสอง target (`lw`/`sw` ที่อยู่นั้นตรง ๆ) — บน SPIM/MARS จะเกิด address exception ตอนรัน (เป็น kernel space) · ทางเลือก: บน `spim` เป็น compile error
+- **Q5 — "fold -O1: ถ้า hi เหมือนกันใช้ offset ได้":** ค่าเริ่มต้น: ที่ `-O1` ใส่ lo16 ลงใน offset ของ `lw`/`sw` แทน `ori` (เช่น SEG7 = `lui $t2, 0xF000` + `sw $t0, 8($t2)`; ปรับ hi เมื่อ lo16 ≥ 0x8000) **ต่อการเข้าถึงหนึ่งครั้ง** — ไม่ใช้ `$t2` ซ้ำข้าม statement (ต้องรู้สถานะ register ข้าม label ซึ่งเกินขอบเขต)
 
 ---
 
@@ -916,6 +1082,9 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 | E029 | sema | ไม่มี `main` หรือ signature ของ `main` ผิด |
 | E030 | parser | feature/type ที่ยังไม่รองรับ (`char`, pointer, array, ...) |
 | E031 | lexer | preprocessor directive ที่ไม่รองรับ |
+| E032 | sema | `printf` / `scanf` บน `--target fpga` (ADR-009) |
+| E033 | lexer | `#define` ต่างค่า / อ้างถึงตัวเอง / ชื่อเป็น keyword (ADR-010) |
+| E034 | parser | ที่อยู่ MMIO หารด้วย 4 ไม่ลงตัว (ADR-010) |
 | E040 | emitter | โปรแกรมเกิน 32,000 คำสั่ง |
 | W001 | sema | ฟังก์ชันที่ไม่ใช่ `main` อาจจบโดยไม่มี `return` |
 
@@ -1037,6 +1206,14 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 | S21 | (M6) `read_int` (syscall 5) ทั้ง SPIM และ MARS อ่าน **บรรทัดละหนึ่งจำนวน** (มีช่องว่างรอบได้); ต่างกันเมื่อ input ผิดรูป: `12 34` ในบรรทัดเดียว SPIM ได้ 12 แล้ว 0 แต่ MARS runtime error · EOF: SPIM ได้ 0, MARS `NullPointerException` · ไม่ใช่ตัวเลข: SPIM ได้ 0, MARS error · `scanf` ของ gcc อ่าน `12 34` ได้สองตัว | FR-10: นิยาม input เป็นจำนวนเต็มบรรทัดละตัวเท่านั้น นอกนั้น undefined |
 | S22 | (M6) ชุด MARS compat 18 โปรแกรม × `-O0`/`-O1` (รวม panic ทั้งสองแบบ, `.byte` UTF-8, `scanf`) ได้ stdout + exit code ตรงกับ SPIM ทุกตัว | ADR-005 ยืนยันด้วย test (`tests/test_mars.py`, `MARS_JAR=...`) |
 | S23 | (M6) random 500 (seed 0–499) บน Windows: 499 ผ่าน; seed 371 ย่อเหลือ `-((-2147483647 - 1) / v)` โดย `v = 2` — c2mips (`-O0`/`-O1`) และ `cvalue.py` ได้ `1073741824` (ถูกตาม C ไม่มี overflow) แต่ **MinGW gcc 6.3.0** ได้ `-1073741824` ทั้ง `-O0`/`-O2` (fold `-(a/b)` เป็น `(-a)/b` ผิดเมื่อ `a == INT_MIN` ภายใต้ `-fwrapv`); gcc 16.1 ได้ `1073741824` | oracle ต้องเป็น gcc รุ่นใหม่ (CI ใช้ gcc 13 ของ Ubuntu 24.04); บน Windows อย่าใช้ MinGW 6.3 เป็น oracle |
+| S24 | ⚠️ **จากผู้ใช้/การสังเกต IDE — ไม่ได้ทดสอบใน CI:** FPGA Studio เรียก `<compiler> <path>\fpga_studio_temp_src.c` (cwd = โฟลเดอร์ IDE) แล้ว assemble เอง; ยังไม่รู้ว่าอ่าน asm จาก stdout หรือไฟล์ | wrapper ส่งทั้งสองทาง (`tools/c2mips_fpga.bat`) |
+| S25 | ⚠️ จากผู้ใช้/IDE: โค้ดเริ่มที่ PC `0x0000`; stack ใกล้ `0x80010000` | startup ADR-009 |
+| S26 | ⚠️ จากผู้ใช้/IDE: openmips มี **branch delay slot** — mips-gcc ของ IDE: `jal` ที่ `0x0004` ตั้ง `$ra = 0x000C` และมี `nop` หลังทุก branch | `nop` หลัง branch/jump ทุกตัว |
+| S27 | ⚠️ จากผู้ใช้/IDE: assembler ของ IDE แปลงคำสั่งที่ไม่รู้จักเป็น `0x00000000` เงียบ ๆ — ไม่รู้จัก `b`, `la`, `syscall` (และน่าจะไม่โหลด `.data`); รู้จักแน่ `addiu addu subu slt lw sw lui jal jr beq bne bltz divu multu mfhi mflo`, `li`/`move` ค่าเล็ก | whitelist + คำสั่งจริงเท่านั้น; คำสั่งอื่นใน whitelist ยังต้องลองบน IDE |
+| S28 | ⚠️ จากผู้ใช้/IDE: ไม่มี OS, ไม่มี syscall/stdout; โปรแกรมจบด้วยการวนค้าง | `E032`, `_halt`, panic → SEG7 |
+| S29 | ⚠️ จากผู้ใช้/IDE: startup ของ mips-gcc ใน IDE = `lui $sp, 0x8001` · `jal main` · `nop` · `_halt: j _halt` · `nop` | startup ADR-009 (เรียก `f_main`) |
+| S30 | ⚠️ จากผู้ใช้/IDE: I/O แบบ memory-mapped (word): `LED = 0xF0000000` (เขียน), `SWITCH = 0xF0000004` (อ่าน), `SEG7 = 0xF0000008` (เขียน); ตัวอย่างของ IDE ใช้ `#define LED (*(volatile int*)0xF0000000)` | ADR-010 |
+| S31 | (target-fpga) `tests/fpga_sim.py` (assemble เป็นรหัสเครื่อง MIPS32 + delay slot + MMIO): ตัวอย่างที่ 1 ของ IDE ได้ `LED = SEG7 = SWITCH + 1` ทุกรอบ; A1–A13, N1–N17 ได้ SEG7 ตรงกับที่คาดและตรงกับ SPIM ของ target เดิม; ลบ `nop` ออกแล้วผลผิด; ทุกโปรแกรมอยู่ใน whitelist ไม่มี `$at` | ยังไม่ได้ตรวจ encoding ด้วย GNU as (ไม่มี `mips-linux-gnu-as` ในเครื่องที่ทดสอบ) และยังไม่ได้รันบน IDE/บอร์ดจริง |
 
 ---
 

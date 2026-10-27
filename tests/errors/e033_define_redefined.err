@@ -1,0 +1,3 @@
+e033_define_redefined.c:2:1: error[E033]: macro 'N' redefined with a different value (first #define at line 1)
+#define N 2
+^

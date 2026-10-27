@@ -1,0 +1,3 @@
+e034_mmio_misaligned.c:3:5: error[E034]: MMIO address 0xF0000002 is not a multiple of 4 (from #define LED at line 1)
+    LED = 1;
+    ^

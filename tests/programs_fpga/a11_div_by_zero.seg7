@@ -1,0 +1,2 @@
+seg7: 0xDEAD0001
+halt: _panic

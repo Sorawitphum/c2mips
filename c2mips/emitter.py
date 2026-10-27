@@ -5,6 +5,7 @@ from __future__ import annotations
 from c2mips import RUNTIME_S, __version__
 from c2mips.codegen import AsmLine, Blank, Comment, Directive, Insn, Label, StrRef
 from c2mips.diagnostics import error
+from c2mips.fpga import emit_fpga
 from c2mips.tokens import Pos
 
 MAX_INSNS = 32000  # Q22: keeps every `beq ... __rt_div0` within the 16-bit branch range
@@ -13,11 +14,13 @@ _ASCIIZ_ESC = {"\n": "\\n", "\t": "\\t", '"': '\\"'}
 
 
 def emit(lines: list[AsmLine], source_name: str, *, where: Pos, runtime: bool = True,
-         opt: str = "-O0") -> str:
+         opt: str = "-O0", target: str = "spim") -> str:
     n_insns = sum(isinstance(ln, Insn) for ln in lines)
     if n_insns > MAX_INSNS:
         raise error("E040", f"program too large: {n_insns} instructions (limit {MAX_INSNS})",
                     where)
+    if target == "fpga":
+        return emit_fpga(lines, runtime=runtime)  # ADR-009: no header, data or comments
     labels: dict[str, str] = {}
     for ln in lines:
         if isinstance(ln, Insn):

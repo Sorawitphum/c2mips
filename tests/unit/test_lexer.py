@@ -95,9 +95,42 @@ def test_int_literal_out_of_range() -> None:
 @pytest.mark.parametrize(("src", "code", "col"), [
     ("$", "E001", 1), ("a ` b", "E001", 3), ("๑", "E001", 1), ("09", "E001", 1),
     ("1abc", "E001", 1), ('"\\x"', "E001", 2), ("/* x", "E002", 1), ('"abc', "E002", 1),
-    ('"ab\ncd"', "E002", 1), ("#define X", "E031", 1), ("#include <math.h>", "E031", 1),
+    ('"ab\ncd"', "E002", 1), ("#define F(x) x", "E031", 1), ("#undef X", "E031", 1),
+    ("#include <math.h>", "E031", 1),
     ("#pragma once", "E031", 1), ("int x; #include <stdio.h>", "E031", 8),
 ])
 def test_lexer_errors(src: str, code: str, col: int) -> None:
     got_code, line, got_col, _msg = first_error(src)
     assert (got_code, line, got_col) == (code, 1, col)
+
+
+def test_hex_literals() -> None:
+    # ADR-010: 0x... on every target; above INT_MAX it is only an MMIO address (parser)
+    toks = lex("0x1F 0X7fffffff 0xF0000008", "t.c")
+    assert [(t.kind, t.value) for t in toks[:-1]] == [
+        (K.NUMBER, 31), (K.NUMBER, 2147483647), (K.NUMBER, 0xF0000008)]
+    assert first_error("0x") == ("E001", 1, 1, "invalid hex literal '0x'")
+    assert first_error("0x100000000")[0] == "E003"
+
+
+def test_define_replaces_tokens_at_the_use_site() -> None:
+    toks = lex("#define N (1 + 2)\n#define M N * N\nint x = M;", "t.c")
+    assert [t.text for t in toks[:-1]] == [
+        "int", "x", "=", "(", "1", "+", "2", ")", "*", "(", "1", "+", "2", ")", ";"]
+    from_macro = toks[3]
+    assert (from_macro.pos.line, from_macro.pos.col) == (3, 9)  # where M is used
+    assert from_macro.pos.via == "N at line 1"
+
+
+def test_define_rules() -> None:
+    assert [t.text for t in lex("#define E\nE int", "t.c")[:-1]] == ["int"]  # empty is fine
+    assert [t.text for t in lex("#define N 1\n#define N 1\nN", "t.c")[:-1]] == ["1"]  # same
+    assert [t.text for t in lex("N\n#define N 1\nN", "t.c")[:-1]] == ["N", "1"]  # from here on
+    assert first_error("#define N 1\n#define N 2")[0] == "E033"
+    assert first_error("#define A A\nA")[0] == "E033"
+    assert first_error("#define return 1")[0] == "E033"
+    assert first_error("#define")[0] == "E031"
+
+
+def test_board_header_is_skipped() -> None:
+    assert kinds('#include "nexys_a7.h"\nint') == [K.INT, K.EOF]

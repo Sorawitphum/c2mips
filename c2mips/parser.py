@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from c2mips import ast
 from c2mips.diagnostics import CompileError, error
+from c2mips.lexer import INT_MAX
 from c2mips.tokens import Pos, Token, TokKind
 
 K = TokKind
@@ -273,7 +274,11 @@ class _Parser:
             name = self.advance()
             self.advance()
             return ast.Assign(str(name.value), self.assign(), name.pos)
-        return self.logic_or()
+        left = self.logic_or()
+        if isinstance(left, ast.MmioLoad) and self.at(K.ASSIGN):  # ADR-010: MMIO lvalue
+            self.advance()
+            return ast.MmioStore(left.addr, self.assign(), left.pos)
+        return left
 
     def left_assoc(self, operand: Callable[[], ast.Expr], ops: tuple[TokKind, ...]) -> ast.Expr:
         """operand { op operand }, folded to the left."""
@@ -305,13 +310,36 @@ class _Parser:
         if self.tok.kind in (K.MINUS, K.PLUS, K.NOT):
             op = self.advance()
             return ast.Unary(op.text, self.unary(), op.pos)
+        if self.tok.kind is K.STAR:
+            return self.mmio()
         return self.primary()
+
+    def mmio(self) -> ast.MmioLoad:
+        """ADR-010: exactly `*(volatile int*)CONST` (spaces allowed); any other pointer use
+        is still E030."""
+        star = self.advance()
+        shape = [(K.LPAREN, None), (K.IDENT, "volatile"), (K.INT, None), (K.STAR, None),
+                 (K.RPAREN, None), (K.NUMBER, None)]
+        toks = []
+        for kind, text in shape:
+            if not self.at(kind) or (text is not None and self.tok.text != text):
+                raise error("E030", "pointers are not supported (only *(volatile int*)ADDRESS "
+                                    "for memory-mapped I/O)", star.pos)
+            toks.append(self.advance())
+        num = toks[-1]
+        assert isinstance(num.value, int)
+        if num.value % 4:
+            raise error("E034", f"MMIO address {num.text} is not a multiple of 4", num.pos)
+        return ast.MmioLoad(num.value, star.pos)
 
     def primary(self) -> ast.Expr:
         tok = self.tok
         if tok.kind is K.NUMBER:
             self.advance()
             assert isinstance(tok.value, int)
+            if tok.value > INT_MAX:  # a hex literal; only an MMIO address may be this big
+                raise error("E003", f"integer literal {tok.text} out of range (max {INT_MAX})",
+                            tok.pos)
             return ast.IntLit(tok.value, tok.pos)
         if tok.kind is K.IDENT:
             if tok.text in ("printf", "scanf"):

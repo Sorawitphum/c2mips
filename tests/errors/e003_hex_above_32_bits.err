@@ -1,0 +1,3 @@
+e003_hex_above_32_bits.c:2:12: error[E003]: integer literal 0x100000000 out of range (max 0xFFFFFFFF)
+    return 0x100000000;
+           ^

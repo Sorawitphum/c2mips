@@ -1,0 +1,3 @@
+e033_define_keyword.c:1:1: error[E033]: 'int' is a keyword and cannot be a macro name
+#define int long
+^

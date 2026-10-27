@@ -56,7 +56,24 @@ class Call:
     resolved: BuiltinFunc | FuncInfo | None = None  # filled by sema
 
 
-Expr = IntLit | Var | Assign | Unary | Binary | Call
+@dataclass
+class MmioLoad:
+    """`*(volatile int*)ADDR` read (ADR-010): always a real lw, never folded or moved."""
+
+    addr: int
+    pos: Pos
+
+
+@dataclass
+class MmioStore:
+    """`*(volatile int*)ADDR = value` (ADR-010): always a real sw."""
+
+    addr: int
+    value: Expr
+    pos: Pos
+
+
+Expr = IntLit | Var | Assign | Unary | Binary | Call | MmioLoad | MmioStore
 
 
 @dataclass(frozen=True)
@@ -222,4 +239,8 @@ def sexpr(node: Program | Function | Stmt | Expr) -> str:
             return f"({op} {sexpr(a)} {sexpr(b)})"
         case Call(name=name, args=args):
             return "(" + " ".join(["call", name, *map(sexpr, args)]) + ")"
+        case MmioLoad(addr=a):
+            return f"(mmio 0x{a:08x})"
+        case MmioStore(addr=a, value=v):
+            return f"(mmio= 0x{a:08x} {sexpr(v)})"
     raise TypeError(node)
