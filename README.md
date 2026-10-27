@@ -30,10 +30,11 @@ C(10,3) = 120
 2. [ติดตั้ง c2mips (ทุก OS)](#2-ติดตั้ง-c2mips-ทุก-os)
 3. [ติดตั้ง simulator](#3-ติดตั้ง-simulator)
 4. [ใช้งาน](#4-ใช้งาน)
-5. [ภาษา MiniC โดยย่อ](#5-ภาษา-minic-โดยย่อ)
-6. [ทดสอบ](#6-ทดสอบ)
-7. [โครงสร้างโปรเจกต์](#7-โครงสร้างโปรเจกต์)
-8. [พัฒนาต่อ](#8-พัฒนาต่อ)
+5. [ใช้กับ FPGA Studio](#5-ใช้กับ-fpga-studio)
+6. [ภาษา MiniC โดยย่อ](#6-ภาษา-minic-โดยย่อ)
+7. [ทดสอบ](#7-ทดสอบ)
+8. [โครงสร้างโปรเจกต์](#8-โครงสร้างโปรเจกต์)
+9. [พัฒนาต่อ](#9-พัฒนาต่อ)
 
 ---
 
@@ -169,6 +170,7 @@ java -jar Mars4_5.jar nc prog.s  # หรือรันบน MARS เอง
 | `--run` | รันไฟล์ที่ได้ ส่ง stdin, stdout และ exit code ต่อ |
 | `--sim auto\|spim\|mars` | simulator ของ `--run` · `spim` หาจาก `$SPIM` แล้ว PATH · `mars` ใช้ `$MARS_JAR` + `java` · `auto` (ค่าเริ่มต้น) = spim ถ้าเจอ ไม่งั้น MARS |
 | `--emit=tokens\|ast\|asm` | พิมพ์ผลของแต่ละ stage ออกหน้าจอแทนการเขียนไฟล์ |
+| `--target spim\|fpga` | `spim` (ค่าเริ่มต้น) = SPIM/MARS · `fpga` = openmips / FPGA Studio ([§5](#5-ใช้กับ-fpga-studio)) |
 | `--no-runtime` | ไม่ต่อท้าย runtime (`nCk`, panic) |
 
 **Exit code ของ `c2mips`:** `0` สำเร็จ (มี warning ได้) · `1` compile error · `2` ใช้งานผิด / อ่านไฟล์ไม่ได้
@@ -193,27 +195,98 @@ prog.c:3:12: error[E020]: undeclared identifier 'x'
 ตัวอย่างใน [`examples/`](examples): `hello_nck.c`, `example.c` (ตรงกับ Spec ภาคผนวก B),
 `fact.c`, `fib.c`, `gcd.c`, `nck_user.c`
 
-## 5. ภาษา MiniC โดยย่อ
+## 5. ใช้กับ FPGA Studio
+
+`--target fpga` สร้าง assembly สำหรับ CPU `openmips` (5-stage pipeline) บนบอร์ด Nexys A7 ผ่าน IDE FPGA Studio
+([Spec ADR-009, ADR-010](Spec.md#adr-009-target-fpga-openmips--fpga-studio--nexys-a7)) — target เดิม (`spim`) ไม่เปลี่ยน
+
+### ตั้งค่าใน IDE
+
+1. ติดตั้ง c2mips ตาม [§2](#2-ติดตั้ง-c2mips-ทุก-os) (Python 3.11+; ถ้ามี `.venv` ใน repo wrapper จะใช้ตัวนั้นเอง)
+2. ใน FPGA Studio นำเข้า **`tools\c2mips_fpga.bat`** เป็น custom compiler
+3. IDE จะเรียก `c2mips_fpga.bat <path>\fpga_studio_temp_src.c` — wrapper เขียน `<path>\fpga_studio_temp_src.c.s`
+   **และ** พิมพ์ assembly เดียวกันออก stdout (ยังไม่รู้ว่า IDE อ่านทางไหน จึงทำทั้งสองทาง) ·
+   error ออก stderr พร้อม exit code ไม่เป็น 0
+
+รันเองจากบรรทัดคำสั่งก็ได้: `c2mips prog.c --target fpga -o prog.s` (`--run` ใช้ไม่ได้กับ target นี้)
+
+### เขียนโปรแกรมสำหรับบอร์ด
+
+ไม่มีระบบปฏิบัติการ จึง **ไม่มี `printf` / `scanf`** (ได้ `E032`) — ใช้ I/O ของบอร์ดแบบ memory-mapped:
+
+```c
+#define LED     (*(volatile int*)0xF0000000)   // เขียน
+#define SWITCH  (*(volatile int*)0xF0000004)   // อ่าน
+#define SEG7    (*(volatile int*)0xF0000008)   // เขียน
+
+int main() {
+    while (1) {
+        int sw = SWITCH;
+        LED = sw + 1;
+        SEG7 = sw + 1;
+    }
+}
+```
+
+- `#define NAME ค่า` แบบไม่มี argument และเลขฐานสิบหก `0x...` ใช้ได้ทั้งสอง target
+- I/O รับเฉพาะรูป `*(volatile int*)ที่อยู่` (ที่อยู่หารด้วย 4 ลงตัว) — pointer อื่นยังใช้ไม่ได้ (`E030`)
+- ทุกการอ่าน/เขียน I/O เกิดจริงตามลำดับในโค้ด (`volatile`) — `-O1` ไม่ตัดและไม่รวม
+
+### ผลลัพธ์บนบอร์ด
+
+| เหตุการณ์ | SEG7 แสดง | จากนั้น |
+|---|---|---|
+| `main` return ค่า v (ไม่มี `return` = 0) | **v** (เขียนทับค่าที่โปรแกรมเขียน SEG7 ไว้เอง) | วนค้างที่ `_halt` |
+| หารด้วยศูนย์ (`/` หรือ `%`) | `0xDEAD0001` | วนค้างที่ `_panic` |
+| `nCk` เกิน int | `0xDEAD0002` | วนค้างที่ `_panic` |
+| `while (1)` | ค่าที่โปรแกรมเขียนเอง | ไม่จบ |
+
+### assembly ที่ได้
+
+- มีแค่ label กับคำสั่งจริง — ไม่มี directive, ไม่มี comment, ไม่มี pseudo-instruction (`li`, `move`, `b`, `la`),
+  ไม่มี `syscall` / `.data` และไม่ใช้ `$at` (assembler ของ IDE เปลี่ยนสิ่งที่ไม่รู้จักเป็น `0x00000000` เงียบ ๆ)
+- ทุก branch/jump ตามด้วย `nop` (delay slot ของ openmips)
+- เริ่มที่ PC `0x0000`: `lui $sp, 0x8001` → `jal f_main` → เขียนค่าที่คืนลง SEG7 → `_halt`
+- แนบ runtime (`nCk`, panic) เฉพาะเมื่อโปรแกรมใช้ `nCk`, `/` หรือ `%`
+- คอมไพเลอร์ตรวจทุกบรรทัดกับรายการคำสั่งที่อนุญาต
+  (`addu addiu subu and andi or ori xor xori nor slt slti sltu sltiu sll srl sra lui lw sw beq bne bltz bgez blez bgtz j jal jr mult multu div divu mfhi mflo nop`)
+
+### ทดสอบโดยไม่มีบอร์ด
+
+`tests/fpga_sim.py` แปลง assembly เป็นรหัสเครื่อง MIPS32 จริงแล้วรันแบบมี delay slot และ I/O ของบอร์ด —
+`pytest -q tests/test_fpga.py` ตรวจทั้งตัวอย่างที่ 1 ของ IDE, A1–A13, N1–N17 (เทียบกับ SPIM) และว่าถ้าไม่มี `nop` ผลจะผิด
+
+### ต้องลองบน IDE จริง (ยังไม่ได้ทดสอบ)
+
+1. นำเข้า `tools\c2mips_fpga.bat` เป็น custom compiler
+2. `int main() { int a = 5; int b = a + 1; return b; }` → ตารางไม่มี `0x00000000` นอกจาก `nop` หลัง branch, sim จบที่ `_halt`, SEG7 = 6
+3. ตัวอย่างที่ 1 (switch → LED) → เลื่อนสวิตช์แล้ว LED/SEG7 = ค่าสวิตช์ + 1
+4. `return nCk(10, 3);` → SEG7 = 120
+5. `return 1 / 0;` → SEG7 = `0xDEAD0001` แล้วค้าง
+6. คำสั่งที่ยังไม่เคยเห็นใน IDE: `return 17 % 5 * 3 < 9;` (ใช้ `div` `mfhi` `mult` `mflo` `slt`) และ
+   `int x = 5; return x == 5;` (ใช้ `sltiu`) — ไม่ควรมี `0x00000000` ในตาราง (ถ้ามี แปลว่า assembler ของ IDE ไม่รู้จักคำสั่งนั้น)
+
+## 6. ภาษา MiniC โดยย่อ
 
 ทุกโปรแกรม MiniC เป็น C99 ที่ gcc คอมไพล์ได้ — กฎเต็มอยู่ใน [Spec §4](Spec.md#4-ภาษาที่รองรับ-minic)
 
 | มี | ไม่มี (ได้ error `E030` บอกตรง ๆ) |
 |---|---|
-| `int` (32 บิต), ตัวแปร local, block scope + shadowing | `char` `float` `long` ฯลฯ, pointer, array, struct |
+| `int` (32 บิต), ตัวแปร local, block scope + shadowing; เลขฐานสิบ และฐานสิบหก `0x...` | `char` `float` `long` ฯลฯ, pointer, array, struct (ยกเว้น I/O `*(volatile int*)ที่อยู่` — [§5](#5-ใช้กับ-fpga-studio)) |
 | `+ - * / %` (wrap แบบ `gcc -fwrapv`, หารปัดเข้าหาศูนย์) | `++` `--` `+=` ฯลฯ |
 | `< <= > >= == !=`, `&& \|\| !` (short-circuit) | `break` `continue` `switch` `do` `goto` |
-| `if/else`, `while`, `for` (init ประกาศตัวแปรได้) | ตัวแปร global, `#define` และ preprocessor อื่น |
+| `if/else`, `while`, `for` (init ประกาศตัวแปรได้) | ตัวแปร global, `#define` ที่มี argument, `#if` `#undef` และ preprocessor อื่น |
 | ฟังก์ชัน ≤ 4 พารามิเตอร์, recursion, prototype | ฟังก์ชันที่พารามิเตอร์เกิน 4 ตัว (`E028`) |
 | `printf` แบบ string literal กับ `%d` `%%` (ภาษาไทยได้) | `%s` `%x` ฯลฯ |
 | `scanf("%d", &x)` | `scanf` รูปอื่น |
 | `nCk(n, k)` ผลถูกต้องทุกค่าที่พอดี int | — |
 
-`#include <stdio.h>` และ `#include "c2mips.h"` ถูกข้ามไป (มีไว้ให้ gcc คอมไพล์ไฟล์เดียวกันได้)
+`#include <stdio.h>`, `#include "c2mips.h"` และ `#include "nexys_a7.h"` ถูกข้ามไป (มีไว้ให้ gcc / IDE คอมไพล์ไฟล์เดียวกันได้) · `#define NAME ค่า` (ไม่มี argument) ใช้ได้
 
 ค่าที่ C ไม่นิยาม c2mips นิยามให้ชัด: `x / 0` และ `x % 0` → panic exit 70 · `INT_MIN / -1` = `INT_MIN` ·
 `INT_MIN % -1` = `0` · `nCk(n, k)` = 0 เมื่อ `k > n` หรือค่าติดลบ · `nCk` ที่เกิน 2,147,483,647 → panic
 
-## 6. ทดสอบ
+## 7. ทดสอบ
 
 ต้องติดตั้งแบบ `pip install -e ".[dev]"` ก่อน
 
@@ -236,7 +309,7 @@ python tests/random/gen.py --seed 42        # ดูโปรแกรมสุ�
 CI (GitHub Actions) รันทุก push และมี nightly สุ่ม 10,000 โปรแกรม + MARS — รายละเอียดใน
 [docs/usage.md](docs/usage.md)
 
-## 7. โครงสร้างโปรเจกต์
+## 8. โครงสร้างโปรเจกต์
 
 ```text
 README.md            คู่มือนี้
@@ -248,10 +321,11 @@ ref/nck_ref.c        nCk ภาษา C ที่ทำงานเหมือ�
 examples/            โปรแกรมตัวอย่าง
 tests/               programs/ (golden), errors/ (compile error), random/, unit/, runtime/
 tools/spim.cmd       ตัวเรียก spim ใน WSL สำหรับ Windows
+tools/c2mips_fpga.bat  wrapper สำหรับ FPGA Studio (--target fpga)
 docs/                usage.md (การทดสอบ), adr/ (Architecture Decision Records)
 ```
 
-## 8. พัฒนาต่อ
+## 9. พัฒนาต่อ
 
 อ่าน [Spec.md](Spec.md) ก่อนแก้อะไร แล้วยึดกติกาเหล่านี้ (รายละเอียด: Spec §14 และ `CLAUDE.md`)
 

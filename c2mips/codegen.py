@@ -81,14 +81,17 @@ def _prec(e: ast.Expr) -> int:
     return 99
 
 
-def codegen(prog: ast.Program, source: str, opt: int = 0) -> list[AsmLine]:
+def codegen(prog: ast.Program, source: str, opt: int = 0, target: str = "spim") -> list[AsmLine]:
     """opt=1 adds the Spec 6.9 templates (leaf operand, constant divisor); folding is
-    fold.py's job and happens before this."""
-    return _Codegen(source, opt).program(prog)
+    fold.py's job and happens before this. target="fpga" changes only the entry stub here
+    (ADR-009); fpga.py lowers the rest."""
+    return _Codegen(source, opt, target).program(prog)
 
 
 def _depth(e: ast.Expr) -> int:
     match e:
+        case ast.MmioStore():
+            return 1 + _depth(e.value)
         case ast.Unary():
             return 1 + _depth(e.operand)
         case ast.Binary():
@@ -119,6 +122,10 @@ def _render(e: ast.Expr) -> str:
             return f"{e.name} = {_render(e.value)}"
         case ast.Call():
             return f"{e.name}({', '.join(map(_render, e.args))})"
+        case ast.MmioLoad():
+            return f"*(volatile int*)0x{e.addr:08X}"
+        case ast.MmioStore():
+            return f"*(volatile int*)0x{e.addr:08X} = {_render(e.value)}"
     raise TypeError(e)
 
 
@@ -128,7 +135,7 @@ def _is_leaf(e: ast.Expr) -> bool:
 
 def _has_assign(e: ast.Expr) -> bool:
     match e:
-        case ast.Assign():
+        case ast.Assign() | ast.MmioStore():
             return True
         case ast.Unary():
             return _has_assign(e.operand)
@@ -161,8 +168,9 @@ def _describe(e: ast.Expr) -> str:
 
 
 class _Codegen:
-    def __init__(self, source: str, opt: int) -> None:
+    def __init__(self, source: str, opt: int, target: str = "spim") -> None:
         self.opt = opt
+        self.target = target
         self.lines: list[AsmLine] = []
         self.src_lines = source.replace("\r\n", "\n").split("\n")
         self.n_labels = 0
@@ -207,17 +215,30 @@ class _Codegen:
     # -- program / functions ------------------------------------------------------
 
     def program(self, prog: ast.Program) -> list[AsmLine]:
-        self.lines += [Directive(".text"), Directive(".globl main")]
-        self.label("main", "entry stub (SPIM __start and MARS both enter here)")
-        self.emit("jal", "f_main")
-        self.emit("move", "$a0", "$v0")
-        self.emit("li", "$v0", "17", comment="exit2(return value of main)")
-        self.emit("syscall")
+        if self.target == "fpga":
+            self.fpga_stub()
+        else:
+            self.lines += [Directive(".text"), Directive(".globl main")]
+            self.label("main", "entry stub (SPIM __start and MARS both enter here)")
+            self.emit("jal", "f_main")
+            self.emit("move", "$a0", "$v0")
+            self.emit("li", "$v0", "17", comment="exit2(return value of main)")
+            self.emit("syscall")
         for f in prog.functions:
             if f.body is not None:
                 self.lines.append(Blank())
                 self.function(f, f.body)
         return _drop_branches_to_next_line(self.lines) if self.opt else self.lines
+
+    def fpga_stub(self) -> None:
+        """ADR-009: code starts at PC 0, stack below 0x80010000, main's value -> SEG7."""
+        self.label("_start")
+        self.emit("lui", "$sp", "0x8001")
+        self.emit("jal", "f_main")
+        self.emit("lui", "$t0", "0xF000")
+        self.emit("sw", "$v0", "8($t0)", comment="SEG7 = return value of main")
+        self.label("_halt")
+        self.emit("j", "_halt")
 
     def function(self, f: ast.Function, body: ast.Block) -> None:
         self.fn = f.name
@@ -395,6 +416,28 @@ class _Codegen:
                 self.binary(e)
             case ast.Call():
                 self.call(e)
+            case ast.MmioLoad():
+                off = self.mmio_base(e.addr)
+                self.emit("lw", "$t0", f"{off}($t2)", comment=_describe(e))
+            case ast.MmioStore():
+                self.expr(e.value)
+                off = self.mmio_base(e.addr)
+                self.emit("sw", "$t0", f"{off}($t2)", comment=_describe(e))  # value stays in $t0
+
+    def mmio_base(self, addr: int) -> int:
+        """ADR-010: put the address in $t2 (scratch, Spec 6.1); returns the lw/sw offset.
+        -O0: lui + ori, offset 0 · -O1: lo16 goes into the offset (Q5), hi adjusted for its
+        sign, so a single lui is enough."""
+        hi, lo = addr >> 16, addr & 0xFFFF
+        if self.opt:
+            if lo >= 0x8000:
+                hi, lo = (hi + 1) & 0xFFFF, lo - 0x10000
+            self.emit("lui", "$t2", f"0x{hi:04X}")
+            return lo
+        self.emit("lui", "$t2", f"0x{hi:04X}")
+        if lo:
+            self.emit("ori", "$t2", "$t2", f"0x{lo:04X}")
+        return 0
 
     def operands(self, e: ast.Binary) -> None:
         """Left operand into $t1, right into $t0."""

@@ -1,0 +1,3 @@
+e032_printf_on_fpga.c:5:5: error[E032]: 'printf' is not available on --target fpga; write to SEG7/LED instead
+    printf("hi\n");
+    ^

@@ -1,3 +1,3 @@
-e031_define.c:1:1: error[E031]: unsupported preprocessor directive '#define'
-#define N 3
+e031_define.c:1:1: error[E031]: function-like macros are not supported (only #define NAME replacement)
+#define SQ(x) x
 ^

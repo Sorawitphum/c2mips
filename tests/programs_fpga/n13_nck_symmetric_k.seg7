@@ -1,0 +1,2 @@
+seg7: 0x7FFFFFFF
+halt: _halt

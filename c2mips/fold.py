@@ -61,8 +61,10 @@ def _stmt(s: ast.Stmt) -> ast.Stmt:
 
 def fold_expr(e: ast.Expr) -> ast.Expr:
     match e:
-        case ast.IntLit() | ast.Var():
-            return e
+        case ast.IntLit() | ast.Var() | ast.MmioLoad():
+            return e  # MMIO is volatile (ADR-010): never folded, merged or moved
+        case ast.MmioStore():
+            return replace(e, value=fold_expr(e.value))
         case ast.Assign():
             return replace(e, value=fold_expr(e.value))
         case ast.Unary():

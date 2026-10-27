@@ -10,6 +10,7 @@ from c2mips.__main__ import main
 
 ERR_DIR = Path(__file__).parent / "errors"
 ERRORS = sorted(ERR_DIR.glob("*.c"))
+ARGS = "// c2mips-args:"  # first line of a test that needs extra CLI options (--target fpga)
 
 
 @pytest.mark.parametrize("src", ERRORS, ids=lambda p: p.stem)
@@ -19,7 +20,9 @@ def test_error(src: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     out = tmp_path / "out.s"
     want = src.with_suffix(".err").read_text(encoding="utf-8")
     has_error = ": error[" in want  # warnings alone (W001) still compile
-    assert main([src.name, "-o", str(out)]) == (1 if has_error else 0)
+    first = src.read_text(encoding="utf-8").partition("\n")[0]
+    extra = first.removeprefix(ARGS).split() if first.startswith(ARGS) else []
+    assert main([src.name, "-o", str(out), *extra]) == (1 if has_error else 0)
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == want
@@ -37,3 +40,9 @@ def test_sema_codes_have_error_tests() -> None:
     # Spec 9.6: every diagnostic code has a test (E040 is generated in test_emitter.py).
     codes = {p.stem.split("_")[0].upper() for p in ERRORS}
     assert {"E020", "E021", "E022", "E023", "E024", "E028", "E029", "W001"} <= codes
+
+
+def test_target_fpga_and_preprocessor_codes_have_error_tests() -> None:
+    # ADR-009 / ADR-010
+    codes = {p.stem.split("_")[0].upper() for p in ERRORS}
+    assert {"E032", "E033", "E034"} <= codes

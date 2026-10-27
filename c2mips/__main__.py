@@ -32,6 +32,8 @@ def _args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--sim", choices=["auto", "spim", "mars"], default="auto",
                    help="simulator for --run: spim ($SPIM or PATH) or MARS ($MARS_JAR + java); "
                         "auto = spim if found, else MARS")
+    p.add_argument("--target", choices=["spim", "fpga"], default="spim",
+                   help="spim: SPIM/MARS (default) · fpga: openmips / FPGA Studio (ADR-009)")
     p.add_argument("--no-runtime", action="store_true", help="do not append runtime.s")
     p.add_argument("--version", action="version", version=f"c2mips {__version__}")
     return p.parse_args(argv)
@@ -44,6 +46,9 @@ def _fail(message: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = _args(sys.argv[1:] if argv is None else argv)
+    if args.run and args.target == "fpga":
+        return _fail("--run is not available for --target fpga (there is no board simulator); "
+                     "load the .s into FPGA Studio")
     name = str(args.input)
     try:
         src = args.input.read_bytes().decode("utf-8").replace("\r\n", "\n")
@@ -61,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             sys.stdout.write(sexpr(parse(lex(src, name))) + "\n")
             return 0
         asm, warnings = compile_program(src, name, runtime=not args.no_runtime,
-                                        opt=args.opt)
+                                        opt=args.opt, target=args.target)
     except CompileError as e:
         for d in e.diagnostics:
             sys.stderr.write(d.render(src))

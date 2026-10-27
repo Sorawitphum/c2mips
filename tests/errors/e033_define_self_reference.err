@@ -1,0 +1,3 @@
+e033_define_self_reference.c:4:12: error[E033]: macro 'A' refers to itself (from #define B at line 2)
+    return A;
+           ^

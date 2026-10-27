@@ -1,0 +1,3 @@
+e032_scanf_on_fpga.c:4:5: error[E032]: 'scanf' is not available on --target fpga; read SWITCH instead
+    scanf("%d", &x);
+    ^

@@ -1,0 +1,3 @@
+e020_reported_at_macro_use.c:4:12: error[E020]: undeclared identifier 'missing' (from #define VALUE at line 1)
+    return VALUE;
+           ^

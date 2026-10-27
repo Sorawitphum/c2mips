@@ -50,6 +50,7 @@ ruff check . && mypy --strict c2mips && pytest -q      # ต้องผ่า�
 | `-O1` (golden asm, equivalence, −30%) | `tests/test_optimize.py` | simulator |
 | random 3 ทาง | `tests/random/` | simulator, gcc |
 | MARS compat | `tests/test_mars.py` | java, `MARS_JAR` |
+| `--target fpga` (openmips, ADR-009/010): ตัวจำลอง delay slot + MMIO, whitelist, เทียบ SPIM | `tests/test_fpga.py`, `tests/fpga_sim.py`, `tests/programs_fpga/` | — (GNU as: ถ้ามี `mips-linux-gnu-as`) |
 
 "simulator" = spim หรือ MARS · test ที่ขาดเครื่องมือจะถูก skip (ไม่ fail) — ดูบรรทัด `s` ใน output ของ pytest
 

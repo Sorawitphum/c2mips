@@ -11,6 +11,7 @@ class Pos:
     file: str
     line: int
     col: int
+    via: str = ""  # token came from a macro: "NAME at line N" of its #define (ADR-010)
 
 
 class TokKind(enum.Enum):
